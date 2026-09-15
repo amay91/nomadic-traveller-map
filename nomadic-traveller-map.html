@@ -748,7 +748,7 @@ tfoot b{font-size:16px}
   <button type="button" id="zoomIn" aria-label="Zoom in">+</button>
   <button type="button" id="zoomOut" aria-label="Zoom out">−</button>
 </div>
-<button id="reset" class="reset glass" aria-label="Reset zoom">⟲</button>
+<button id="reset" class="reset glass" aria-label="Recentre map">⟲</button>
 
 <div class="about">
   <button id="aboutBtn" class="pill glass aboutBtn" aria-expanded="false" aria-controls="aboutCard">
@@ -1855,6 +1855,16 @@ function updateLabels(scale) {
     }
   }
 }
+// Whether a view is still (near enough) resting at home() to count as "not
+// zoomed in" — shared by apply()'s own recentre-button toggle below and by
+// the resize handler further down, so "should the recentre button show" and
+// "did this resize start from home" can't drift into two different answers
+// to what is really the same question. The 3%/5% slop matches how apply()
+// already re-snaps a view that's landed almost exactly on home (float noise
+// from repeated zoom/pan math) so that case doesn't itself count as zoomed.
+function atHome(v, hm) {
+  return Math.abs(v.w - hm.w) <= hm.w * 0.03 && Math.abs(v.x - hm.x) <= hm.w * 0.05;
+}
 function apply(v) {
   const max = base.w, min = zoomMin();
   const w = Math.min(max, Math.max(min, v.w)), h = (w * base.h) / base.w;
@@ -1863,8 +1873,7 @@ function apply(v) {
   if (w === max) view = { ...base };
   svg.setAttribute("viewBox", `${view.x} ${view.y} ${view.w} ${view.h}`);
   sizeToScreen();
-  const hm = home();
-  $("#reset").classList.toggle("show", Math.abs(view.w - hm.w) > hm.w * 0.03 || Math.abs(view.x - hm.x) > hm.w * 0.05);
+  $("#reset").classList.toggle("show", !atHome(view, home()));
   // dead controls at the ends of the range are worse than absent ones
   $("#zoomIn").disabled = view.w <= min + 1e-9;
   $("#zoomOut").disabled = view.w >= base.w - 1e-9;
@@ -2596,7 +2605,35 @@ addEventListener("keydown", (e) => {
   else if (aboutCard.classList.contains("open")) toggleAbout(false);
   else if (+getComputedStyle(brandTip).opacity > 0) { showBrandTip(false); brandWrap.classList.add("hush"); }
 });
-addEventListener("resize", () => { fit(); apply(home()); });
+// A window "resize" on a phone doesn't only mean the device rotated or the
+// browser chrome resized — dismissing the on-screen keyboard does too, and
+// so does the popover itself: it's a bottom sheet with its own focused input
+// (openPop() below), and closing it (popClose, scrim, Escape) drops that
+// focus and the keyboard with it. The old code called apply(home()) here
+// unconditionally, so a phone user who'd zoomed into a country, tapped it,
+// and closed the popover watched the map jump straight back to fully zoomed
+// out on every such close — reported 2026-09-15 ("click close, the map
+// resets back to zoomed out"). Recentre only if the view was ALREADY resting
+// at home before this fired (the ordinary case: nothing has been zoomed into
+// yet, so home() tracking the new dimensions is exactly what should happen,
+// e.g. an actual orientation flip at rest). Otherwise keep the same view,
+// just handed through apply() again so it's reclamped against whatever the
+// new base/zoomMin() now are — preserving the zoom instead of discarding it.
+addEventListener("resize", () => {
+  // Number.isFinite(view?.w) guards two states where `view` isn't a real
+  // view to preserve: undefined (a resize firing before boot's own first
+  // apply(home()) at the bottom of this file has run — some browsers
+  // dispatch an early resize during initial layout), and NaN (innerWidth/
+  // innerHeight briefly read 0 — seen in an automated viewport-resize tool,
+  // possibly a real device mid-rotation too — which sends fit()'s own
+  // division-by-zero all the way into view.w). Either way there's nothing
+  // valid to hold onto, and per-field atHome() comparisons against NaN are
+  // always false, which would otherwise read as "diverged" and latch that
+  // broken view in place forever instead of self-healing on the next resize.
+  const wasHome = !Number.isFinite(view?.w) || atHome(view, home());
+  fit();
+  apply(wasHome ? home() : view);
+});
 
 /* ── heatmap on/off ──
    A per-device display preference, like a remembered sort order — NOT part of
