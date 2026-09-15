@@ -1,0 +1,8 @@
+# Dev-only dependencies for tools/build-geo.mjs (topojson, d3-geo). Regenerated
+# with `cd tools && npm install`; 8.4 MB across 202 files, and not app code.
+tools/node_modules/
+
+# This tool's local config. Excluded because launch.json hardcodes absolute
+# paths on this machine — including a C:\Users\<name>\ scratch directory — which
+# has no business in a public repo. Nothing here is needed to build or run the app.
+.claude/

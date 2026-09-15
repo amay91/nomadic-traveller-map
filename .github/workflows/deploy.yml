@@ -1,0 +1,44 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # Lets a deploy be re-run by hand from the Actions tab without needing an
+  # empty commit — e.g. after changing a Pages setting.
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  # A push that breaks a test shouldn't go live silently. This matches the
+  # project's own standing rule that a task is done only when verified.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: node --test tests/*.test.mjs
+
+  # There is no build step (plan.md L1). The whole job is handing Pages the
+  # app/ folder exactly as it is in the repo.
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: app }
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Nomad Travel Map</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#7C99B4">
+<link rel="icon" href="icons/icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Nomad Map">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<svg id="map" role="img" aria-label="World map. Visited countries are highlighted."></svg>
+
+<header class="top">
+  <div class="brand glass"><span class="mark"></span><div><b>Nomad Travel Map</b><small>Countries you've been to</small></div></div>
+  <button id="countBtn" class="pill glass" aria-label="Open the list of visited countries">
+    <span class="num"><b id="count">0</b> / 195</span>
+    <svg viewBox="0 0 16 16" fill="none"><path d="M2.5 4h11M2.5 8h11M2.5 12h7"/></svg>
+  </button>
+</header>
+
+<form id="entry" class="bar glass" autocomplete="off" novalidate>
+  <div class="field combo">
+    <label for="country">Country</label>
+    <input id="country" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="list" placeholder="Start typing a country…" spellcheck="false">
+  </div>
+  <div class="field">
+    <label for="years">Year(s) visited</label>
+    <input id="years" inputmode="numeric" placeholder="e.g. 2019, 2023">
+  </div>
+  <button class="btn" type="submit">Submit</button>
+  <span class="barTitle" aria-hidden="true">Add a country</span>
+  <button type="button" class="x barX" id="barClose" aria-label="Close">×</button>
+  <p id="err" class="err" role="alert"></p>
+</form>
+
+<!-- A sibling of #entry, not a descendant — like every other floating surface
+     in this app (#pop, #tip, #toast, .panel), positioned in JS rather than
+     via a CSS-relative ancestor. It used to live inside .field.combo, which
+     broke once the entry sheet gained overflow-y:auto for keyboard-avoidance
+     (§V2b): the dropdown floats entirely above the input, outside the sheet's
+     own box, and something in that ancestor chain swallowed its hit-testing
+     even after position:fixed + an explicit z-index — moving it out fixed it
+     outright, matching the pattern the rest of the app already uses. -->
+<ul id="list" class="list" role="listbox" aria-label="Matching countries"></ul>
+
+<!-- Phone only. The entry sheet is three full-width rows; parking it open cost a
+     quarter of the screen while idle (spec §4.7), so on a phone it opens on demand
+     from here and the map keeps the space the rest of the time. -->
+<button type="button" id="addBtn" class="addBtn glass"><span aria-hidden="true">+</span> Add a country</button>
+
+<div id="pop" class="pop glass" role="dialog" aria-labelledby="popName" aria-hidden="true" inert>
+  <button type="button" class="x" id="popClose" aria-label="Close">×</button>
+  <h2 id="popName"></h2>
+  <p id="popMeta" class="muted"></p>
+  <form id="popForm" novalidate autocomplete="off">
+    <div id="popStatus" class="statusRow" role="group" aria-label="How you know this place">
+      <button type="button" data-s="visited" aria-pressed="true">Visited</button>
+      <button type="button" data-s="lived" aria-pressed="false">Lived</button>
+      <button type="button" data-s="home" aria-pressed="false">Home</button>
+    </div>
+    <label id="popYearsLabel" for="popYears">Year(s) visited</label>
+    <input id="popYears" inputmode="numeric" placeholder="e.g. 2019, 2023">
+    <div id="popErr" class="perr" role="alert"></div>
+    <div class="row"><button type="button" id="popRemove" class="link">Remove</button><button class="btn">Submit</button></div>
+  </form>
+</div>
+
+<div id="tip" class="tip"></div>
+<div id="scrim" class="scrim"></div>
+<aside id="panel" class="panel" aria-label="Visited countries" aria-hidden="true" inert>
+  <header>
+    <h2>Visited</h2>
+    <p class="muted"><span id="pCount" class="num">0</span> of 195 countries</p>
+    <button type="button" class="x" id="pClose" aria-label="Close">×</button>
+  </header>
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th data-col="name"><button>Country</button></th>
+        <th data-col="years"><button>Year(s) visited</button></th>
+        <th data-col="times" class="r"><button># Times</button></th>
+        <th data-col="cont"><button>Continent</button></th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+      <tfoot><tr><td colspan="4" id="total"></td></tr></tfoot>
+    </table>
+    <p id="empty" class="empty muted" hidden>No countries yet. Type one below or click the map.</p>
+  </div>
+  <footer>
+    <div class="footRow">
+      <button type="button" class="btn" id="emailMap">Email me this map</button>
+      <button type="button" class="btn ghost" id="clearMap">Clear map</button>
+    </div>
+    <p class="footNote muted" id="savedState">Your map lives in its own link — no account, nothing stored on a server. Email it to yourself to keep it.</p>
+    <p class="muted"><button class="link" id="exp">Export backup</button> · <button class="link" id="imp">Import</button></p>
+    <input type="file" id="importFile" accept="application/json,.json" hidden>
+  </footer>
+</aside>
+
+<div id="toast" class="toast" role="status"><span id="toastMsg"></span><button id="undo">Undo</button></div>
+
+<div class="zoom glass">
+  <button type="button" id="zoomIn" aria-label="Zoom in">+</button>
+  <button type="button" id="zoomOut" aria-label="Zoom out">−</button>
+</div>
+<button id="reset" class="reset glass" aria-label="Reset zoom">⟲</button>
+
+<div class="about">
+  <button id="aboutBtn" class="pill glass aboutBtn" aria-expanded="false" aria-controls="aboutCard">
+    <b>195</b> countries · <b id="aboutExtraCount">45</b> territories
+  </button>
+  <div id="aboutCard" class="aboutCard glass" role="dialog" aria-hidden="true" inert>
+    <p><b>195</b> is the official count — UN member states plus the Holy See and the State of Palestine (Worldometers/UN). The counter above tracks only these.</p>
+    <p><b id="aboutExtraCount2">45</b> more <b>territories</b> are also shown and clickable — real, distinct, inhabited places (Greenland, Taiwan, Hong Kong, Puerto Rico, …) that aren't sovereign countries. They're tracked too, just kept separate from "of 195."</p>
+  </div>
+</div>
+
+<script src="countries.js"></script>
+<script src="geo.js"></script>
+<script src="logic.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

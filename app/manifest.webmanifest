@@ -1,0 +1,15 @@
+{
+  "name": "Nomad Travel Map",
+  "short_name": "Nomad Map",
+  "description": "A personal map of every country you've been to, and when.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#7C99B4",
+  "theme_color": "#7C99B4",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

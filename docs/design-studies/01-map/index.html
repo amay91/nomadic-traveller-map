@@ -1,0 +1,906 @@
+<!doctype html>
+<html lang="en" data-palette="C">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Nomad Travel Map — Design study 01</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#7C99B4">
+<link rel="icon" href="icons/icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Nomad Map">
+<style>
+:root{
+  /* A · Sand & Sea — the brief's soft-blue-water pairing, with real contrast this time */
+  --water:#A9CFDD; --land:#F1E0C3; --land-hi:#DECEB3; --visited:#C2603C; --visited-hi:#AF5636; --dot:#CFC1A8;
+  --border-line:rgba(255,255,255,.85);
+  --ink:#2B3640; --muted:#55636E; --hair:#E3E8EC; --surface:rgba(255,255,255,.92); --error:#A94F3A;
+  --shadow:0 1px 2px rgba(30,45,60,.06),0 10px 30px rgba(30,45,60,.12);
+  --ease:cubic-bezier(.2,.8,.2,1); --spring:cubic-bezier(.34,1.56,.64,1);
+  font-family:system-ui,-apple-system,"Segoe UI Variable Text","Segoe UI",Roboto,sans-serif;
+  color:var(--ink); -webkit-font-smoothing:antialiased;
+}
+/* B · Coastal — vibrant teal water, punchy coral-orange visited */
+[data-palette=B]{--water:#4FAFC4;--land:#F6E4BE;--land-hi:#E2D2AF;--visited:#E4602A;--visited-hi:#CD5626;--dot:#D4C4A3;--border-line:rgba(255,255,255,.85)}
+/* C · Atlas — deeper, editorial; a working nautical-chart mood. CHOSEN 2026-09-13.
+   Borders are dark warm "chart ink" (not white) — clearer against both water and
+   land than any translucent-white value tested (4.0:1 / 8.8:1 vs 3-3.7 / 6-8). */
+[data-palette=C]{--water:#7C99B4;--land:#E9DCC3;--land-hi:#D6CAB3;--visited:#9C3826;--visited-hi:#8C3222;--dot:#C8BDA8;--border-line:#3F3529}
+/* D · Jewel — rich and saturated; sapphire water, garnet visited */
+[data-palette=D]{--water:#33678F;--land:#EDE2CB;--land-hi:#DAD0BB;--visited:#B23A44;--visited-hi:#A0343D;--dot:#CCC2AF;--border-line:rgba(255,255,255,.8)}
+/* E · Tropic — the most vibrant/playful option; bright turquoise + coral */
+[data-palette=E]{--water:#4FD1E0;--land:#FFEAC2;--land-hi:#EBD7B2;--visited:#FF5A3C;--visited-hi:#E65136;--dot:#DBC9A7;--border-line:rgba(255,255,255,.85)}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--water);transition:background .4s}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.num{font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+
+/* ── map ── */
+#map{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab;opacity:0;transition:opacity .6s ease}
+#map.ready{opacity:1}
+#map.panning{cursor:grabbing}
+#map path{stroke:var(--border-line);stroke-width:.6px;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.t{fill:var(--land)}
+.c{fill:var(--land);cursor:pointer;transform-box:fill-box;transform-origin:center;
+   transition:fill .5s ease,transform .28s var(--spring)}
+.c:hover{fill:var(--land-hi);transition-duration:.12s,.28s}
+.dot{fill:var(--dot);stroke:var(--border-line);stroke-width:1px;vector-effect:non-scaling-stroke}
+.c.is-visited{fill:var(--visited)}
+.c.is-visited:hover{fill:var(--visited-hi)}
+.c.is-selected{transform:scale(1.06);filter:url(#lift)}
+.c.is-selected:not(.is-visited){fill:var(--land-hi)}
+.dot.is-selected{transform:scale(1.7)}
+.ripple{fill:none;stroke:var(--visited);stroke-width:2.5px;vector-effect:non-scaling-stroke;pointer-events:none;
+  transform-box:fill-box;transform-origin:center;animation:ripple .7s var(--ease) forwards}
+@keyframes ripple{from{transform:scale(.15);opacity:.75}to{transform:scale(1);opacity:0}}
+
+/* ── floating chrome ── */
+.glass{background:var(--surface);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:var(--shadow);border-radius:16px}
+.top{position:fixed;inset:16px 16px auto 16px;display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none}
+.top>*{pointer-events:auto}
+.brand{display:flex;gap:10px;align-items:center;height:40px;padding:0 16px 0 12px;border-radius:999px}
+.brand b{display:block;font-size:15px;letter-spacing:.2px}
+.brand small{display:block;font-size:12px;color:var(--muted)}
+.mark{width:12px;height:12px;border-radius:50%;background:var(--visited);box-shadow:0 0 0 4px color-mix(in srgb,var(--visited) 22%,transparent)}
+.pill{display:flex;align-items:center;gap:10px;height:40px;padding:0 14px 0 16px;border:0;border-radius:999px;font-size:14px;transition:transform .2s var(--spring)}
+.pill:hover{transform:translateY(-1px)}
+.pill b{font-weight:650}
+.pill svg{width:16px;height:16px;stroke:var(--ink);stroke-width:1.8;stroke-linecap:round}
+#count{display:inline-block}
+#count.bump{animation:bump .32s var(--spring)}
+@keyframes bump{50%{transform:scale(1.25);color:var(--visited-hi)}}
+
+/* entry bar */
+.bar{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);width:min(640px,calc(100vw - 32px));
+  display:flex;align-items:stretch;gap:6px;padding:6px}
+.bar.shake{animation:shake .32s ease}
+@keyframes shake{25%{transform:translateX(calc(-50% - 6px))}75%{transform:translateX(calc(-50% + 6px))}}
+.field{position:relative;flex:1;display:flex;flex-direction:column;justify-content:center;padding:7px 14px;border-radius:11px;transition:background .15s}
+.field+.field::before{content:"";position:absolute;left:-3px;top:12px;bottom:12px;width:1px;background:var(--hair)}
+.field:focus-within{background:#fff;box-shadow:0 0 0 1px var(--hair)}
+.field.combo{flex:1.35}
+.field label{font-size:11px;font-weight:600;letter-spacing:.3px;color:var(--muted)}
+.field input{border:0;outline:0;background:transparent;padding:2px 0 0;font-size:15px;width:100%}
+.field input::placeholder{color:#7D8A95}
+.btn{border:0;border-radius:11px;background:var(--ink);color:#fff;font-weight:600;font-size:14px;padding:0 22px;min-height:44px;transition:background .15s,transform .15s}
+.btn:hover{background:#3A4854}
+.btn:active{transform:scale(.97)}
+.err{position:absolute;left:14px;bottom:calc(100% + 8px);margin:0;font-size:12.5px;color:var(--error);background:#fff;padding:6px 10px;border-radius:8px;box-shadow:var(--shadow);
+  opacity:0;transform:translateY(4px);transition:opacity .15s,transform .15s;pointer-events:none}
+.err.show{opacity:1;transform:none}
+
+/* dropdown (opens upward from the bar) */
+.list{position:absolute;left:0;bottom:calc(100% + 12px);width:min(340px,calc(100vw - 32px));margin:0;padding:6px;list-style:none;
+  background:#fff;border-radius:14px;box-shadow:var(--shadow);max-height:340px;overflow:auto;
+  opacity:0;transform:translateY(6px);transition:opacity .12s,transform .12s;pointer-events:none}
+.list.open{opacity:1;transform:none;pointer-events:auto}
+.list li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 10px;border-radius:9px;cursor:pointer;font-size:14.5px}
+.list li small{font-size:12px;color:var(--muted);white-space:nowrap}
+.list li small i{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--visited);margin-right:5px;vertical-align:1px}
+.list li[aria-selected=true]{background:color-mix(in srgb,var(--visited) 14%,#fff)}
+.list li mark{background:none;color:inherit;font-weight:650}
+.list .none{color:var(--muted);cursor:default;font-size:13px}
+
+/* popover */
+.pop{position:fixed;width:272px;padding:16px;z-index:5;opacity:0;transform:translateY(6px) scale(.98);pointer-events:none;
+  transition:opacity .18s ease,transform .18s var(--ease)}
+.pop.open{opacity:1;transform:none;pointer-events:auto}
+.pop h2{margin:0;font-size:17px;font-weight:650}
+.pop p{margin:2px 0 12px;font-size:12.5px}
+.pop label{font-size:11px;font-weight:600;letter-spacing:.3px;color:var(--muted)}
+.pop input{display:block;width:100%;margin-top:4px;padding:10px 12px;border:1px solid var(--hair);border-radius:10px;font-size:15px;background:#fff;outline:0;transition:border-color .15s,box-shadow .15s}
+.pop input:focus{border-color:#B9C4CC;box-shadow:0 0 0 3px color-mix(in srgb,var(--visited) 18%,transparent)}
+.pop .perr{min-height:18px;margin:6px 0 4px;font-size:12.5px;color:var(--error)}
+.statusRow{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin:0 0 12px;padding:3px;background:#F1F4F6;border-radius:10px}
+.statusRow button{border:0;background:transparent;border-radius:7px;padding:6px 0;font-size:12.5px;color:var(--muted);transition:background .15s,color .15s}
+.statusRow button:hover{color:var(--ink)}
+.statusRow button[aria-pressed=true]{background:#fff;color:var(--ink);font-weight:650;box-shadow:0 1px 2px rgba(30,45,60,.10)}
+.pop .row{display:flex;justify-content:space-between;align-items:center}
+.pop .btn{min-height:40px}
+.x{position:absolute;top:10px;right:10px;width:28px;height:28px;border:0;border-radius:50%;background:transparent;color:var(--muted);font-size:18px;line-height:1}
+.x:hover{background:#F1F4F6;color:var(--ink)}
+.link{border:0;background:none;padding:6px 2px;color:var(--muted);font-size:13px;text-decoration:underline;text-underline-offset:3px}
+.link:hover{color:var(--error)}
+.link[hidden]{display:none}
+
+/* tooltip */
+.tip{position:fixed;left:0;top:0;padding:6px 10px;border-radius:8px;background:var(--ink);color:#fff;font-size:12.5px;white-space:nowrap;pointer-events:none;
+  opacity:0;transition:opacity .1s;z-index:6}
+.tip.show{opacity:1}
+.tip span{opacity:.7;margin-left:6px}
+
+/* side panel */
+.scrim{position:fixed;inset:0;background:rgba(30,45,60,.12);opacity:0;pointer-events:none;transition:opacity .3s}
+.scrim.open{opacity:1;pointer-events:auto}
+.panel{position:fixed;top:0;right:0;bottom:0;width:min(480px,100vw);background:#fff;box-shadow:-10px 0 40px rgba(30,45,60,.12);
+  display:flex;flex-direction:column;transform:translateX(104%);transition:transform .32s var(--ease);z-index:8}
+.panel.open{transform:none}
+.panel>header{position:relative;padding:22px 24px 14px}
+.panel h2{margin:0;font-size:20px;font-weight:650}
+.panel header p{margin:3px 0 0;font-size:13px}
+.tablewrap{flex:1;overflow:auto;padding:0 12px}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{position:sticky;top:0;background:#fff;text-align:left;padding:0;border-bottom:1px solid var(--hair);z-index:1}
+th button{border:0;background:none;padding:10px 12px;font-size:11px;font-weight:600;letter-spacing:.3px;color:var(--muted);text-transform:uppercase;white-space:nowrap}
+th button:hover{color:var(--ink)}
+th[aria-sort] button{color:var(--ink)}
+th[aria-sort=ascending] button::after{content:" ↑"}
+th[aria-sort=descending] button::after{content:" ↓"}
+td{padding:11px 12px;border-bottom:1px solid #F0F3F5;vertical-align:top}
+tbody tr{cursor:pointer;transition:background .12s}
+tbody tr:hover{background:color-mix(in srgb,var(--visited) 9%,#fff)}
+tbody.enter tr{animation:rowin .3s var(--ease) both;animation-delay:calc(min(var(--i),20) * 15ms)}
+@keyframes rowin{from{opacity:0;transform:translateY(6px)}}
+td.name{font-weight:560;position:relative;padding-left:30px}
+td.cont{white-space:nowrap}
+td.name i{position:absolute;left:13px;top:17px;width:8px;height:8px;border-radius:50%;background:var(--visited)}
+.tbadge{display:inline-block;margin-left:8px;padding:1px 7px 2px;border:1px solid var(--hair);border-radius:999px;
+  font-size:10px;font-weight:600;letter-spacing:.3px;color:var(--muted);text-transform:uppercase;vertical-align:2px}
+.tbadge.on{border-color:var(--ink);color:var(--ink)}
+td.name i.lived{box-shadow:0 0 0 2px var(--ink) inset;background:transparent}
+td.name i.home{box-shadow:0 0 0 2px var(--ink);background:var(--visited)}
+
+/* Lived/Home are marked with a small ink glyph at the place's centre, not a
+   third and fourth fill colour — the palette stays water + land + visited. */
+.mk{pointer-events:none;stroke:var(--ink);stroke-width:1.6px;vector-effect:non-scaling-stroke}
+.mk-lived{fill:none}
+.mk-home{fill:var(--ink);stroke:#fff;stroke-width:1.4px}
+.r{text-align:right}
+th.r button{width:100%;text-align:right}
+tfoot td{position:sticky;bottom:0;background:#fff;border-top:1px solid var(--hair);border-bottom:0;padding:14px 12px;font-size:13.5px}
+tfoot b{font-size:16px}
+.empty{padding:40px 24px;text-align:center;font-size:14px}
+.panel footer{padding:14px 24px 18px;border-top:1px solid var(--hair);font-size:13px}
+.footRow{display:flex;gap:8px}
+.footRow .btn{flex:1;min-height:40px;font-size:13.5px;padding:0 12px}
+.btn.ghost{background:transparent;color:var(--muted);box-shadow:inset 0 0 0 1px var(--hair)}
+.btn.ghost:hover{background:#FCF3F1;color:var(--error);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--error) 35%,transparent)}
+.footNote{margin:10px 0 6px;font-size:12px;line-height:1.45}
+.footNote.stale{color:var(--error)}
+.panel footer p{margin:0}
+
+/* toast + reset */
+.toast{position:fixed;left:50%;top:18px;transform:translate(-50%,-10px);display:flex;gap:14px;align-items:center;padding:10px 12px 10px 16px;border-radius:12px;
+  background:var(--ink);color:#fff;font-size:13.5px;opacity:0;pointer-events:none;transition:opacity .2s,transform .25s var(--ease);z-index:7}
+.toast.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+.toast button{border:0;background:rgba(255,255,255,.14);color:#fff;border-radius:8px;padding:5px 10px;font-size:13px;font-weight:600}
+.reset{position:fixed;right:16px;bottom:24px;width:40px;height:40px;border:0;border-radius:50%;font-size:17px;
+  opacity:0;transform:scale(.8);pointer-events:none;transition:opacity .2s,transform .2s var(--spring)}
+.reset.show{opacity:1;transform:none;pointer-events:auto}
+
+/* "official count" caveat — bottom-right, independent of the reset button's position */
+.about{position:fixed;right:16px;bottom:76px;z-index:4}
+.aboutBtn{height:32px;padding:0 12px;font-size:12px;color:var(--muted);border-radius:999px}
+.aboutBtn b{color:var(--ink);font-weight:650}
+.aboutCard{position:absolute;right:0;bottom:calc(100% + 8px);width:280px;padding:16px;
+  opacity:0;transform:translateY(6px) scale(.98);pointer-events:none;transition:opacity .16s,transform .16s var(--ease)}
+.aboutCard.open{opacity:1;transform:none;pointer-events:auto}
+.aboutCard p{margin:0 0 10px;font-size:12.5px;line-height:1.5}
+.aboutCard p:last-child{margin-bottom:0}
+.aboutCard b{color:var(--ink)}
+
+/* study-only controls — NOT part of the product */
+.study{position:fixed;left:16px;bottom:20px;padding:10px 12px;border:1.5px dashed #9AA7B0;border-radius:12px;background:rgba(255,255,255,.85);font-size:11.5px;color:var(--muted);max-width:250px}
+.study b{display:block;color:var(--ink);font-size:11px;letter-spacing:.4px;text-transform:uppercase;margin-bottom:6px}
+.study .sw{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-bottom:6px}
+.study .sw button{border:1px solid var(--hair);background:#fff;border-radius:8px;padding:5px 4px;font-size:11px;display:flex;align-items:center;justify-content:center;gap:4px;white-space:nowrap}
+.study .sw button[aria-pressed=true]{border-color:var(--ink);font-weight:650;background:#F6F4F1}
+.study .sw i{display:inline-block;width:9px;height:9px;border-radius:50%;flex:none}
+.study .link{font-size:11.5px;padding:2px 0}
+
+/* ── mobile ── */
+@media (max-width:640px){
+  .bar{flex-wrap:wrap;bottom:0;width:100vw;border-radius:18px 18px 0 0;padding:10px 10px calc(10px + env(safe-area-inset-bottom))}
+  .field{flex:1 1 100%;background:#fff;box-shadow:0 0 0 1px var(--hair)}
+  .field+.field::before{display:none}
+  .btn{flex:1 1 100%}
+  .toast{top:64px;max-width:calc(100vw - 32px)}
+  .reset{bottom:236px}
+  .about{right:10px;bottom:288px}
+  .pop{left:0!important;top:auto!important;bottom:0;width:100vw;border-radius:18px 18px 0 0;padding:20px 18px calc(18px + env(safe-area-inset-bottom))}
+  .study{left:auto;right:10px;bottom:auto;top:66px;max-width:132px;padding:6px}
+  .study b,.study .note{display:none}
+  .study .sw{grid-template-columns:1fr;margin:0}
+  .study .sw button{justify-content:flex-start}
+  .brand small{display:none}
+  .tablewrap{padding:0 4px}
+  th button{padding:10px 8px}
+  td{padding:11px 8px}
+  td.name{padding-left:24px}
+  td.name i{left:8px}
+  td.cont{white-space:normal}
+}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{transition-duration:0s!important;animation-duration:0s!important;animation-delay:0s!important}}
+</style>
+</head>
+<body>
+
+<svg id="map" role="img" aria-label="World map. Visited countries are highlighted."></svg>
+
+<header class="top">
+  <div class="brand glass"><span class="mark"></span><div><b>Nomad Travel Map</b><small>Countries you've been to</small></div></div>
+  <button id="countBtn" class="pill glass" aria-label="Open the list of visited countries">
+    <span class="num"><b id="count">0</b> / 195</span>
+    <svg viewBox="0 0 16 16" fill="none"><path d="M2.5 4h11M2.5 8h11M2.5 12h7"/></svg>
+  </button>
+</header>
+
+<form id="entry" class="bar glass" autocomplete="off" novalidate>
+  <div class="field combo">
+    <label for="country">Country</label>
+    <input id="country" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="list" placeholder="Start typing a country…" spellcheck="false">
+    <ul id="list" class="list" role="listbox" aria-label="Matching countries"></ul>
+  </div>
+  <div class="field">
+    <label for="years">Year(s) visited</label>
+    <input id="years" inputmode="numeric" placeholder="e.g. 2019, 2023">
+  </div>
+  <button class="btn" type="submit">Submit</button>
+  <p id="err" class="err" role="alert"></p>
+</form>
+
+<div id="pop" class="pop glass" role="dialog" aria-labelledby="popName" aria-hidden="true" inert>
+  <button type="button" class="x" id="popClose" aria-label="Close">×</button>
+  <h2 id="popName"></h2>
+  <p id="popMeta" class="muted"></p>
+  <form id="popForm" novalidate autocomplete="off">
+    <div id="popStatus" class="statusRow" role="group" aria-label="How you know this place">
+      <button type="button" data-s="visited" aria-pressed="true">Visited</button>
+      <button type="button" data-s="lived" aria-pressed="false">Lived</button>
+      <button type="button" data-s="home" aria-pressed="false">Home</button>
+    </div>
+    <label id="popYearsLabel" for="popYears">Year(s) visited</label>
+    <input id="popYears" inputmode="numeric" placeholder="e.g. 2019, 2023">
+    <div id="popErr" class="perr" role="alert"></div>
+    <div class="row"><button type="button" id="popRemove" class="link">Remove</button><button class="btn">Submit</button></div>
+  </form>
+</div>
+
+<div id="tip" class="tip"></div>
+<div id="scrim" class="scrim"></div>
+<aside id="panel" class="panel" aria-label="Visited countries" aria-hidden="true" inert>
+  <header>
+    <h2>Visited</h2>
+    <p class="muted"><span id="pCount" class="num">0</span> of 195 countries</p>
+    <button type="button" class="x" id="pClose" aria-label="Close">×</button>
+  </header>
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th data-col="name"><button>Country</button></th>
+        <th data-col="years"><button>Year(s) visited</button></th>
+        <th data-col="times" class="r"><button># Times</button></th>
+        <th data-col="cont"><button>Continent</button></th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+      <tfoot><tr><td colspan="4" id="total"></td></tr></tfoot>
+    </table>
+    <p id="empty" class="empty muted" hidden>No countries yet. Type one below or click the map.</p>
+  </div>
+  <footer>
+    <div class="footRow">
+      <button type="button" class="btn" id="emailMap">Email me this map</button>
+      <button type="button" class="btn ghost" id="clearMap">Clear map</button>
+    </div>
+    <p class="footNote muted" id="savedState">Your map lives in its own link — no account, nothing stored on a server. Email it to yourself to keep it.</p>
+    <p class="muted"><button class="link" id="exp">Export backup</button> · <button class="link" id="imp">Import</button></p>
+  </footer>
+</aside>
+
+<div id="toast" class="toast" role="status"><span id="toastMsg"></span><button id="undo">Undo</button></div>
+<button id="reset" class="reset glass" aria-label="Reset zoom">⟲</button>
+
+<div class="about">
+  <button id="aboutBtn" class="pill glass aboutBtn" aria-expanded="false" aria-controls="aboutCard">
+    <b>195</b> countries · <b id="aboutExtraCount">44</b> territories
+  </button>
+  <div id="aboutCard" class="aboutCard glass" role="dialog" aria-hidden="true" inert>
+    <p><b>195</b> is the official count — UN member states plus the Holy See and the State of Palestine (Worldometers/UN). The counter above tracks only these.</p>
+    <p><b id="aboutExtraCount2">44</b> more <b>territories</b> are also shown and clickable — real, distinct, inhabited places (Greenland, Taiwan, Hong Kong, Puerto Rico, …) that aren't sovereign countries. They're tracked too, just kept separate from "of 195."</p>
+  </div>
+</div>
+
+<aside class="study" aria-label="Design study controls">
+  <b>Design study 01</b>
+  <div class="sw" id="palettes">
+    <button data-p="A" aria-pressed="true"><i style="background:#C2603C"></i>Sand & Sea</button>
+    <button data-p="B" aria-pressed="false"><i style="background:#E4602A"></i>Coastal</button>
+    <button data-p="C" aria-pressed="false"><i style="background:#9C3826"></i>Atlas</button>
+    <button data-p="D" aria-pressed="false"><i style="background:#B23A44"></i>Jewel</button>
+    <button data-p="E" aria-pressed="false"><i style="background:#FF5A3C"></i>Tropic</button>
+  </div>
+  <div class="note">Real trips found in your files — check these. <button class="link" id="clear">Clear</button> · <button class="link" id="sample">Restore</button></div>
+</aside>
+
+<script src="../../../app/countries.js"></script>
+<script src="../../../app/geo.js"></script>
+<script>
+/* DESIGN STUDY — disposable demo code. Production app.js is written fresh against logic.js (plan.md §5). */
+const $ = (s) => document.querySelector(s);
+const svg = $("#map");
+const COUNTRY = new Map(COUNTRIES.map((c) => [c[0], { iso: c[0], name: c[2], cont: c[3], aliases: c.slice(4), official: true }]));
+const TERRITORY = new Map(TERRITORIES.map((t) => [t[0], { iso: t[0], name: t[2], cont: t[3], aliases: t.slice(4), official: false }]));
+const PLACE = new Map([...COUNTRY, ...TERRITORY]);
+// Illustrative demo data — deliberately fictional, not the owner's real trips
+// (scrubbed 2026-09-14 ahead of making this repo public for GitHub Pages;
+// product_spec.md §5.4 records the real methodology this was originally
+// built from, without the specific personal detail). Still exercises every
+// status: a Home country, a Lived period, and several plain Visited years.
+// visits[code] = { y: [years], s: "visited" | "lived" | "home" }
+// `s` is a label, never a filter: all three count toward "of 195" (a travel map
+// that leaves out where you're from would just look like a bug). Years mean the
+// same thing in all three — years you were there — so no new input format.
+// There's deliberately no "currently resident" status: it would go stale the day
+// you move. Years running to the present already say it, and can't rot.
+const SAMPLE = {
+  BRA: { y: [], s: "home" },
+  DEU: { y: [2016, 2017, 2018, 2023, 2024], s: "lived" },
+  AUS: { y: [2015, 2016, 2019, 2021, 2022] }, NZL: { y: [2015] },
+  ZAF: { y: [2017, 2018, 2019, 2020], s: "lived" },
+  THA: { y: [2019] }, ESP: { y: [2019] }, NLD: { y: [2018] },
+  KOR: { y: [2020] }, MAR: { y: [2022] }, GRC: { y: [2024] }, CHL: { y: [2025] },
+};
+const yearsOf = (iso) => visits[iso]?.y ?? [];
+const statusOf = (iso) => visits[iso]?.s ?? "visited";
+const STATUS = { visited: "Visited", lived: "Lived", home: "Home" };
+
+/* ── the map IS the URL ──────────────────────────────────────────────────
+   Every place is 3 letters + an optional status mark + 2 base-36 chars per
+   year (offset from 1900). The real map above encodes to ~104 characters;
+   100 countries × 3 years each is ~1,000, still inside the ~2,000-char
+   limit browsers and mail clients handle comfortably. So the whole map fits
+   in the link — no server, no database, no account, nothing stored anywhere
+   but this browser and whatever link the user chooses to send themselves. */
+const Y0 = 1900;
+const enc36 = (n) => n.toString(36).padStart(2, "0");
+function encodeMap(v) {
+  return Object.keys(v).sort().map((iso) => {
+    const mark = v[iso].s === "lived" ? "!" : v[iso].s === "home" ? "*" : "";
+    return iso + mark + (v[iso].y || []).map((yr) => enc36(yr - Y0)).join("");
+  }).join("-");
+}
+function decodeMap(str) {
+  const out = {};
+  const max = new Date().getFullYear();
+  for (const part of (str || "").split("-")) {
+    if (part.length < 3) continue;
+    const iso = part.slice(0, 3).toUpperCase();
+    if (!PLACE.has(iso)) continue;           // a mangled link can't invent places
+    let rest = part.slice(3), s;
+    if (rest[0] === "!") { s = "lived"; rest = rest.slice(1); }
+    else if (rest[0] === "*") { s = "home"; rest = rest.slice(1); }
+    const y = [];
+    for (let i = 0; i + 1 < rest.length; i += 2) {
+      const n = parseInt(rest.slice(i, i + 2), 36);
+      if (Number.isFinite(n) && Y0 + n >= Y0 && Y0 + n <= max) y.push(Y0 + n);
+    }
+    out[iso] = s ? { y: y.sort((a, b) => a - b), s } : { y: y.sort((a, b) => a - b) };
+  }
+  return out;
+}
+/* ── the storage seam ─────────────────────────────────────────────────────
+   THE ONLY PLACE THE APP TOUCHES PERSISTENCE. Everything else calls
+   Store.load() / Store.save(visits) and knows nothing about how or where.
+
+   Today that's the URL + localStorage, no account and no server. If accounts
+   are ever wanted (plan.md L13), a remote adapter drops in HERE — same two
+   methods, returning/accepting the same plain `visits` object — and no other
+   part of the app changes: not the map, the table, the search, the status
+   model, or the geometry. Keeping this seam one object wide is the whole
+   reason the multi-user question can safely be deferred rather than
+   pre-built. Don't let a localStorage or fetch call leak out of it. */
+const KEY = "travelmap.v1";
+const SAVED_KEY = "travelmap.savedCode";
+const Store = {
+  save(v) {
+    const code = encodeMap(v);
+    // replaceState, not pushState — the back button shouldn't walk your edits
+    history.replaceState(null, "", code ? "#m=" + code : location.pathname + location.search);
+    try { localStorage.setItem(KEY, JSON.stringify({ v: 1, visits: v })); } catch {}
+    updateSavedState();
+  },
+  // What the user last actually kept (emailed/exported), so the app can tell
+  // them when their kept copy has fallen behind. Safari deletes localStorage
+  // after 7 days of not visiting a site, so "it's still in the browser" is not
+  // a durability guarantee — the user needs to know when to re-save.
+  markKept(v) { try { localStorage.setItem(SAVED_KEY, encodeMap(v)); } catch {} },
+  keptCode() { try { return localStorage.getItem(SAVED_KEY) || ""; } catch { return ""; } },
+  load() {
+    const fromUrl = decodeMap(new URLSearchParams(location.hash.slice(1)).get("m"));
+    if (Object.keys(fromUrl).length) return fromUrl;   // a link always wins
+    try {
+      const raw = JSON.parse(localStorage.getItem(KEY) || "null");
+      if (raw?.visits && Object.keys(raw.visits).length) return raw.visits;
+    } catch {}
+    return null;
+  },
+};
+const syncUrl = () => Store.save(visits);
+let visits = structuredClone(SAMPLE); // replaced at boot by a saved link/localStorage, if any
+const reduce = matchMedia("(prefers-reduced-motion: reduce)");
+
+/* ── pure helpers (production: logic.js) ── */
+const strip = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const norm = (s) => strip(s).replace(/[^a-z0-9]+/g, " ").trim();
+function search(q) {
+  const n = norm(q);
+  if (!n) return [];
+  const out = [];
+  for (const c of PLACE.values()) {
+    let best = 9;
+    [c.name, ...c.aliases].forEach((t, i) => {
+      const s = norm(t);
+      const r = s.startsWith(n) ? (i ? 2 : 0) : (" " + s).includes(" " + n) ? (i ? 3 : 1) : n.length > 2 && s.includes(n) ? 4 : 9;
+      best = Math.min(best, r);
+    });
+    if (best < 9) out.push([best, c]);
+  }
+  // Countries rank above territories on an equal text match — the 195 are the
+  // primary list; a territory only wins on a strictly closer text match.
+  return out.sort((a, b) => a[0] - b[0] || (b[1].official - a[1].official) || a[1].name.localeCompare(b[1].name)).slice(0, 8).map((x) => x[1]);
+}
+const exact = (q) => { const n = norm(q); for (const c of PLACE.values()) if ([c.name, ...c.aliases].some((t) => norm(t) === n)) return c.iso; return null; };
+function parseYears(s) {
+  const max = new Date().getFullYear();
+  const toks = s.split(/[\s,;]+/).filter(Boolean);
+  if (!toks.length) return { error: "Add at least one year, e.g. 2019" };
+  const years = [];
+  for (const t of toks) {
+    if (!/^\d{4}$/.test(t)) return { error: `“${t}” isn't a year. Use four digits, e.g. 2019` };
+    if (+t < 1900 || +t > max) return { error: `${t} is outside 1900–${max}` };
+    years.push(+t);
+  }
+  return { years: years.sort((a, b) => a - b) };
+}
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+function highlight(name, q) {
+  const n = strip(q).trim(), s = strip(name);
+  let i = s.startsWith(n) ? 0 : s.indexOf(" " + n) + 1 || s.indexOf("-" + n) + 1 || s.indexOf(n);
+  if (!n || i < 0) return esc(name);
+  return esc(name.slice(0, i)) + "<mark>" + esc(name.slice(i, i + n.length)) + "</mark>" + esc(name.slice(i + n.length));
+}
+
+/* ── map render ── */
+function renderMap() {
+  let h = `<defs><filter id="lift" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow id="liftShadow" dx="0" dy="1" stdDeviation="1.4" flood-color="#1e2d3c" flood-opacity=".28"/></filter></defs><g id="land">`;
+  for (const [name, d] of GEO.t) h += `<path class="t" data-t="${esc(name)}" d="${d}"/>`;
+  for (const iso in GEO.c) h += `<path class="c" data-iso="${iso}" d="${GEO.c[iso]}"/>`;
+  h += `</g><g id="dots">`;
+  for (const iso of GEO.d) h += `<circle class="c dot" data-iso="${iso}" cx="${GEO.a[iso][0]}" cy="${GEO.a[iso][1]}" r="2"/>`;
+  svg.innerHTML = h + `</g><g id="marks"></g><g id="fx"></g>`;
+}
+const els = (iso) => svg.querySelectorAll(`[data-iso="${iso}"]`);
+// Small ink glyph at the centre of anywhere lived-in or home. Drawn in its own
+// layer above the fills so it survives a selection raising a path to the top.
+function renderMarks() {
+  $("#marks").innerHTML = Object.keys(visits)
+    .filter((iso) => statusOf(iso) !== "visited" && GEO.a[iso])
+    .map((iso) => `<circle class="mk mk-${statusOf(iso)}" cx="${GEO.a[iso][0]}" cy="${GEO.a[iso][1]}" r="2"/>`)
+    .join("");
+  sizeToScreen();
+}
+function paint(stagger) {
+  svg.querySelectorAll(".c").forEach((e) => {
+    const on = !!visits[e.dataset.iso];
+    if (stagger && on) e.style.transitionDelay = `${Math.random() * 700}ms`;
+    e.classList.toggle("is-visited", on);
+  });
+  if (stagger) setTimeout(() => svg.querySelectorAll(".c").forEach((e) => (e.style.transitionDelay = "")), 1400);
+  renderMarks();
+  // The header count is the official 195 only — territories are tracked but
+  // kept out of "of 195" (spec'd in the corner "about" card).
+  $("#count").textContent = Object.keys(visits).filter((iso) => COUNTRY.has(iso)).length;
+}
+
+/* ── camera (viewBox) ── */
+let base, view, tween;
+function fit() {
+  const W = innerWidth, H = innerHeight, mobile = W <= 640;
+  let h = GEO.h * (mobile ? 1.05 : 1.2), w = (h * W) / H;
+  if (w < GEO.w * 1.04) { w = GEO.w * 1.04; h = (w * H) / W; }
+  base = { x: (GEO.w - w) / 2, y: (GEO.h - h) / 2 + (mobile ? GEO.h * 0.12 : 0), w, h };
+}
+// Starting view. Desktop: the whole world. Phone portrait: zoom so the map's height
+// fills the band between the header (~90px) and the bottom sheet (~230px), centred on
+// Europe/Africa; pinch out for the whole world.
+function home() {
+  const W = innerWidth, H = innerHeight;
+  if (W > 640 || H < W) return { ...base };
+  const s = (H - 330) / GEO.h, w = W / s, h = H / s;
+  return { x: GEO.w / 2 - w / 2, y: GEO.h / 2 - (90 + H - 230) / 2 / s, w, h };
+}
+// Anything meant to stay a fixed size on screen (dots, status glyphs, the
+// selected-country shadow) is counter-scaled against the current zoom here,
+// in one place — so a new screen-sized element can't be forgotten on zoom.
+function sizeToScreen() {
+  if (!view) return;
+  const scale = innerWidth / view.w; // px per map unit
+  svg.querySelectorAll(".dot").forEach((d) => d.setAttribute("r", (3.4 / scale).toFixed(2)));
+  svg.querySelectorAll(".mk").forEach((m) => m.setAttribute("r", (3.6 / scale).toFixed(2)));
+  $("#liftShadow")?.setAttribute("stdDeviation", (3.2 / scale).toFixed(2));
+  $("#liftShadow")?.setAttribute("dy", (1.6 / scale).toFixed(2));
+}
+function apply(v) {
+  const max = base.w, min = base.w / 12;
+  const w = Math.min(max, Math.max(min, v.w)), h = (w * base.h) / base.w;
+  const cx = Math.min(GEO.w, Math.max(0, v.x + v.w / 2)), cy = Math.min(GEO.h, Math.max(0, v.y + v.h / 2));
+  view = { x: cx - w / 2, y: cy - h / 2, w, h };
+  if (w === max) view = { ...base };
+  svg.setAttribute("viewBox", `${view.x} ${view.y} ${view.w} ${view.h}`);
+  sizeToScreen();
+  const hm = home();
+  $("#reset").classList.toggle("show", Math.abs(view.w - hm.w) > hm.w * 0.03 || Math.abs(view.x - hm.x) > hm.w * 0.05);
+}
+function zoomAt(px, py, f) {
+  const mx = view.x + (px / innerWidth) * view.w, my = view.y + (py / innerHeight) * view.h;
+  // Clamp BEFORE computing the offset, matching apply()'s own clamp exactly —
+  // otherwise, once a zoom request exceeds the min/max, the anchor math below
+  // is computed against a width apply() is about to override, and the point
+  // that's supposed to stay under the cursor silently drifts a little further
+  // every tick. Found by scrolling in on a real place near the map's very
+  // top edge (Svalbard) well past the zoom cap: the view kept sliding south
+  // tick after tick even though nothing was still visibly "zooming."
+  const w = Math.min(base.w, Math.max(base.w / 12, view.w / f)), h = (w * base.h) / base.w;
+  apply({ x: mx - (px / innerWidth) * w, y: my - (py / innerHeight) * h, w, h });
+}
+function animateTo(to, ms = 650) {
+  cancelAnimationFrame(tween);
+  if (reduce.matches) return apply(to);
+  const from = { ...view }, t0 = performance.now();
+  const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
+  const step = (now) => {
+    const t = Math.min(1, (now - t0) / ms), k = ease(t);
+    apply({ x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k, w: from.w + (to.w - from.w) * k, h: from.h + (to.h - from.h) * k });
+    if (t < 1) tween = requestAnimationFrame(step);
+  };
+  tween = requestAnimationFrame(step);
+}
+function flyTo(iso) {
+  const [, , x0, y0, x1, y1] = GEO.a[iso];
+  const aspect = base.w / base.h;
+  let w = Math.max((x1 - x0) * 2.4 + 16, ((y1 - y0) * 2.4 + 16) * aspect);
+  w = Math.min(base.w, Math.max(base.w / 6, w));
+  const h = w / aspect;
+  animateTo({ x: (x0 + x1) / 2 - w / 2, y: (y0 + y1) / 2 - h * 0.46, w, h });
+}
+
+/* pan / pinch / wheel */
+const ptrs = new Map();
+let drag = null, moved = false;
+svg.addEventListener("pointerdown", (e) => {
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  moved = false;
+  drag = { x: e.clientX, y: e.clientY, view: { ...view }, dist: null };
+  if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; drag.dist = Math.hypot(a.x - b.x, a.y - b.y); }
+});
+addEventListener("pointermove", (e) => {
+  if (!drag || !ptrs.has(e.pointerId)) return;
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (ptrs.size === 2 && drag.dist) {
+    const [a, b] = [...ptrs.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
+    zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, d / drag.dist); drag.dist = d; moved = true; return;
+  }
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (!moved && Math.hypot(dx, dy) < 5) return;
+  moved = true; svg.classList.add("panning"); hideTip();
+  const s = drag.view.w / innerWidth;
+  cancelAnimationFrame(tween);
+  apply({ ...drag.view, x: drag.view.x - dx * s, y: drag.view.y - dy * s });
+});
+addEventListener("pointerup", (e) => { ptrs.delete(e.pointerId); if (!ptrs.size) { drag = null; svg.classList.remove("panning"); } });
+addEventListener("pointercancel", (e) => ptrs.delete(e.pointerId));
+svg.addEventListener("wheel", (e) => { e.preventDefault(); cancelAnimationFrame(tween); zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0018)); }, { passive: false });
+$("#reset").onclick = () => animateTo(home());
+
+/* ── tooltip ── */
+const tip = $("#tip");
+function hideTip() { tip.classList.remove("show"); }
+svg.addEventListener("pointermove", (e) => {
+  if (e.pointerType !== "mouse" || drag?.x !== undefined && moved) return;
+  const t = e.target, iso = t.dataset?.iso, terr = t.dataset?.t;
+  if (!iso && !terr) return hideTip();
+  const p = iso && PLACE.get(iso);
+  const tag = [statusOf(iso) !== "visited" && visits[iso] ? STATUS[statusOf(iso)] : "", p?.official ? "" : "Territory"].filter(Boolean).join(" · ");
+  const meta = [visits[iso] ? yearsOf(iso).join(", ") : "", tag].filter(Boolean).join(" · ");
+  tip.innerHTML = iso ? esc(p.name) + `<span>${meta}</span>` : esc(terr) + "<span>Not among the 195</span>";
+  tip.style.transform = `translate(${e.clientX + 14}px,${e.clientY + 16}px)`;
+  tip.classList.add("show");
+});
+svg.addEventListener("pointerleave", hideTip);
+
+/* ── selection + popover ── */
+let selected = null;
+function select(iso, withPop) {
+  if (selected) els(selected).forEach((e) => e.classList.remove("is-selected"));
+  selected = iso;
+  if (!iso) return closePop();
+  els(iso).forEach((e) => { e.parentNode.appendChild(e); getComputedStyle(e).transform; e.classList.add("is-selected"); });
+  if (withPop) openPop(iso);
+}
+const pop = $("#pop");
+let pendingStatus = "visited";
+function setStatus(s) {
+  pendingStatus = s;
+  document.querySelectorAll("#popStatus button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.s === s));
+  // "Year(s) visited" is the wrong words once it isn't a visit
+  $("#popYearsLabel").textContent = s === "lived" ? "Year(s) lived there" : s === "home" ? "Year(s) — optional" : "Year(s) visited";
+}
+function openPop(iso) {
+  const c = PLACE.get(iso), rec = visits[iso], ys = yearsOf(iso);
+  const st = statusOf(iso);
+  $("#popName").textContent = c.name;
+  const note = !rec ? "not visited yet" : st === "home" ? "home country" : st === "lived" ? "lived there" : `visited ${ys.length}×`;
+  $("#popMeta").textContent = CONTINENTS[c.cont] + (c.official ? "" : " · Territory") + " · " + note;
+  $("#popYears").value = ys.join(", ");
+  $("#popErr").textContent = "";
+  $("#popRemove").hidden = !rec;
+  setStatus(st);
+  // anchor beside the country's on-screen box
+  let r = null;
+  els(iso).forEach((e) => { const b = e.getBoundingClientRect(); r = r ? { left: Math.min(r.left, b.left), right: Math.max(r.right, b.right), top: Math.min(r.top, b.top), bottom: Math.max(r.bottom, b.bottom) } : b; });
+  const pw = 272, ph = 230, gap = 14;
+  let left = r.right + gap;
+  if (left + pw > innerWidth - 12) left = r.left - gap - pw;
+  if (left < 12) left = Math.min(innerWidth - pw - 12, Math.max(12, (r.left + r.right) / 2 + 40));
+  const top = Math.min(innerHeight - ph - 100, Math.max(72, (r.top + r.bottom) / 2 - ph / 2));
+  pop.style.left = left + "px"; pop.style.top = top + "px";
+  pop.classList.add("open"); pop.setAttribute("aria-hidden", "false"); pop.inert = false;
+  setTimeout(() => $("#popYears").focus({ preventScroll: true }), 60);
+}
+function closePop() { pop.classList.remove("open"); pop.setAttribute("aria-hidden", "true"); pop.inert = true; }
+svg.addEventListener("click", (e) => {
+  if (moved) return;
+  hideTip();
+  const iso = e.target.dataset?.iso;
+  if (!iso) return select(null);
+  select(iso === selected && pop.classList.contains("open") ? null : iso, true);
+});
+$("#popClose").onclick = () => select(null);
+document.querySelectorAll("#popStatus button").forEach((b) => (b.onclick = () => { setStatus(b.dataset.s); $("#popErr").textContent = ""; }));
+$("#popForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  // Years are required for Visited and Lived, optional for Home — you don't
+  // have a "year you visited" the country you're from.
+  const raw = $("#popYears").value.trim();
+  const r = pendingStatus === "home" && !raw ? { years: [] } : parseYears(raw);
+  if (r.error) { $("#popErr").textContent = r.error; return; }
+  const iso = selected; closePop(); save(iso, r.years, pendingStatus);
+  setTimeout(() => selected === iso && select(null), 900);
+});
+$("#popRemove").onclick = () => { const iso = selected; select(null); remove(iso); };
+
+/* ── save / remove / undo ── */
+let undoFn = null, toastT;
+function toast(msg, undo) {
+  $("#toastMsg").textContent = msg; undoFn = undo;
+  $("#toast").classList.add("show");
+  clearTimeout(toastT); toastT = setTimeout(() => $("#toast").classList.remove("show"), 5000);
+}
+$("#undo").onclick = () => { undoFn?.(); $("#toast").classList.remove("show"); };
+function commit(next) { visits = next; paint(); renderRows(); syncUrl(); }
+function save(iso, years, status) {
+  const prev = structuredClone(visits);
+  const s = status ?? statusOf(iso); // typing in the entry bar never downgrades an existing Home/Lived
+  const rec = s === "visited" ? { y: years } : { y: years, s };
+  commit({ ...visits, [iso]: rec });
+  ripple(iso);
+  const n = $("#count"); n.classList.remove("bump"); void n.offsetWidth; n.classList.add("bump");
+  const detail = years.join(", ") || STATUS[s];
+  toast(`${PLACE.get(iso).name} ${prev[iso] ? "updated" : "added"} · ${detail}`, () => commit(prev));
+}
+function remove(iso) {
+  const prev = structuredClone(visits), next = { ...visits };
+  delete next[iso]; commit(next);
+  toast(`${PLACE.get(iso).name} removed`, () => commit(prev));
+}
+function ripple(iso) {
+  if (reduce.matches) return;
+  const [cx, cy, x0, y0, x1, y1] = GEO.a[iso];
+  const scale = innerWidth / view.w;
+  const r = Math.max(30 / scale, Math.hypot(x1 - x0, y1 - y0) * 0.55);
+  const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  c.setAttribute("class", "ripple"); c.setAttribute("cx", cx); c.setAttribute("cy", cy); c.setAttribute("r", r);
+  c.addEventListener("animationend", () => c.remove());
+  $("#fx").appendChild(c);
+}
+
+/* ── entry bar (combobox) ── */
+const cIn = $("#country"), list = $("#list"), yIn = $("#years"), err = $("#err"), bar = $("#entry");
+let opts = [], active = -1, chosen = null;
+function renderList() {
+  const open = !!cIn.value.trim();
+  list.classList.toggle("open", open);
+  cIn.setAttribute("aria-expanded", open);
+  if (!open) return;
+  list.innerHTML = opts.length
+    ? opts.map((c, i) => `<li role="option" id="o${i}" data-iso="${c.iso}" aria-selected="${i === active}"><span>${highlight(c.name, cIn.value)}</span><small>${visits[c.iso] ? `<i></i>${yearsOf(c.iso).join(", ") || STATUS[statusOf(c.iso)]}` : CONTINENTS[c.cont]}${c.official ? "" : " · Territory"}</small></li>`).join("")
+    : `<li class="none">No country matches “${esc(cIn.value.trim())}”</li>`;
+  cIn.setAttribute("aria-activedescendant", active >= 0 ? "o" + active : "");
+  list.querySelector("[aria-selected=true]")?.scrollIntoView({ block: "nearest" });
+}
+function closeList() { list.classList.remove("open"); cIn.setAttribute("aria-expanded", "false"); }
+function choose(iso) {
+  const c = PLACE.get(iso);
+  cIn.value = c.name; chosen = iso; closeList(); showErr("");
+  yIn.value = yearsOf(iso).join(", ");
+  closePop(); select(iso, false); flyTo(iso);
+  yIn.focus();
+}
+cIn.addEventListener("input", () => { chosen = null; opts = search(cIn.value); active = opts.length ? 0 : -1; showErr(""); renderList(); });
+cIn.addEventListener("keydown", (e) => {
+  if (!list.classList.contains("open")) return;
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); if (opts.length) { active = (active + (e.key === "ArrowDown" ? 1 : -1) + opts.length) % opts.length; renderList(); } }
+  else if (e.key === "Enter" && active >= 0) { e.preventDefault(); choose(opts[active].iso); }
+  else if (e.key === "Escape") closeList();
+});
+cIn.addEventListener("blur", () => setTimeout(() => { closeList(); if (!chosen) { const iso = exact(cIn.value); if (iso) chosen = iso; } }, 120));
+cIn.addEventListener("focus", () => { if (cIn.value && !chosen) renderList(); });
+list.addEventListener("mousedown", (e) => { e.preventDefault(); const li = e.target.closest("li[data-iso]"); if (li) choose(li.dataset.iso); });
+function showErr(msg) {
+  err.textContent = msg; err.classList.toggle("show", !!msg);
+  if (msg) { bar.classList.remove("shake"); void bar.offsetWidth; bar.classList.add("shake"); }
+}
+bar.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const iso = chosen || exact(cIn.value);
+  if (!iso) { showErr(cIn.value.trim() ? `“${cIn.value.trim()}” isn't one of the 195 countries. Pick one from the list` : "Choose a country first"); cIn.focus(); return; }
+  const raw = yIn.value.trim();
+  const r = statusOf(iso) === "home" && !raw ? { years: [] } : parseYears(raw);
+  if (r.error) { showErr(r.error); yIn.focus(); return; }
+  if (selected !== iso) { select(iso, false); flyTo(iso); }
+  save(iso, r.years);
+  cIn.value = ""; yIn.value = ""; chosen = null; showErr("");
+  setTimeout(() => selected === iso && select(null), 900);
+});
+[cIn, yIn].forEach((i) => i.addEventListener("input", () => err.classList.contains("show") && i === yIn && showErr("")));
+
+/* ── side panel ── */
+let sort = { col: "name", dir: 1 };
+function renderRows(enter) {
+  const rows = Object.entries(visits).map(([iso]) => {
+    const c = PLACE.get(iso), ys = yearsOf(iso), st = statusOf(iso);
+    // "# times" only means something for a visit — for somewhere you live or
+    // are from, a count of years-present isn't a count of trips.
+    return { iso, name: c.name, official: c.official, ys, st, times: st === "visited" ? ys.length : null,
+             cont: CONTINENTS[c.cont], last: ys[ys.length - 1] ?? 0 };
+  });
+  const key = { name: (r) => r.name, years: (r) => r.last, times: (r) => r.times, cont: (r) => r.cont }[sort.col];
+  rows.sort((a, b) => { const x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir || a.name.localeCompare(b.name); });
+  const tb = $("#rows");
+  tb.innerHTML = rows.map((r, i) => `<tr data-iso="${r.iso}" style="--i:${i}"><td class="name"><i class="${r.st}"></i>${esc(r.name)}${r.st === "visited" ? "" : `<span class="tbadge on">${STATUS[r.st]}</span>`}${r.official ? "" : '<span class="tbadge">Territory</span>'}</td><td class="num">${r.ys.join(", ") || "<span class=muted>—</span>"}</td><td class="r num">${r.times ?? "<span class=muted>—</span>"}</td><td class="muted cont">${r.cont}</td></tr>`).join("");
+  if (enter && !reduce.matches) { tb.classList.remove("enter"); void tb.offsetWidth; tb.classList.add("enter"); }
+  const n = rows.filter((r) => r.official).length, nt = rows.length - n;
+  $("#pCount").textContent = n;
+  $("#total").innerHTML = `Total &nbsp;<b class="num">${n}</b> of 195 countries <span class="muted">· ${((n / 195) * 100).toFixed(1)}%</span>`
+    + (nt ? ` <span class="muted">· +${nt} ${nt === 1 ? "territory" : "territories"} visited</span>` : "");
+  $("#empty").hidden = rows.length > 0;
+  document.querySelectorAll("th[data-col]").forEach((th) => th.dataset.col === sort.col ? th.setAttribute("aria-sort", sort.dir > 0 ? "ascending" : "descending") : th.removeAttribute("aria-sort"));
+}
+function openPanel() { renderRows(true); $("#panel").inert = false; $("#panel").classList.add("open"); $("#panel").setAttribute("aria-hidden", "false"); $("#scrim").classList.add("open"); closePop(); $("#pClose").focus(); }
+function closePanel() { $("#panel").classList.remove("open"); $("#panel").setAttribute("aria-hidden", "true"); $("#panel").inert = true; $("#scrim").classList.remove("open"); }
+$("#countBtn").onclick = openPanel;
+$("#pClose").onclick = closePanel;
+$("#scrim").onclick = closePanel;
+document.querySelectorAll("th[data-col] button").forEach((b) => (b.onclick = () => {
+  const col = b.parentNode.dataset.col;
+  sort = sort.col === col ? { col, dir: -sort.dir } : { col, dir: col === "times" || col === "years" ? -1 : 1 };
+  renderRows();
+}));
+$("#rows").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-iso]"); if (!tr) return;
+  const iso = tr.dataset.iso; closePanel(); flyTo(iso);
+  setTimeout(() => select(iso, true), reduce.matches ? 0 : 680);
+});
+$("#exp").onclick = $("#imp").onclick = () => toast("Study: export/import is wired in the build (task B7)", null);
+
+/* ── save by link / clear ── */
+// Manual saving only works if the app says when the kept copy is stale.
+// Without this, the failure is silent: you add three countries, never re-send
+// the link, and a browser cleanup takes them.
+function updateSavedState() {
+  const el = $("#savedState");
+  if (!el) return;
+  const now = encodeMap(visits), kept = Store.keptCode();
+  const n = Object.keys(visits).length;
+  if (!n) { el.textContent = "Your map lives in its own link — no account, nothing stored on a server."; el.classList.remove("stale"); return; }
+  if (!kept) { el.textContent = "Not saved yet — email yourself the link to keep this map."; el.classList.add("stale"); return; }
+  if (kept !== now) { el.textContent = "Changed since you last saved — email yourself the link again to keep it."; el.classList.add("stale"); return; }
+  el.textContent = "Saved — the link you emailed is up to date."; el.classList.remove("stale");
+}
+// mailto: needs no server and no address on our side — it hands the user's own
+// mail client a pre-filled message and gets out of the way. Nothing about the
+// map or the address ever reaches us, because there is no "us".
+$("#emailMap").onclick = () => {
+  if (!Object.keys(visits).length) return toast("Add a country first — there's nothing to save yet", null);
+  syncUrl();
+  const n = Object.keys(visits).filter((iso) => COUNTRY.has(iso)).length;
+  const subject = "My Nomad Travel Map";
+  const body = `My travel map — ${n} of 195 countries so far.\n\nOpen this link any time to see it or add to it:\n\n${location.href}\n\nKeep this email; the link is the map.`;
+  location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  Store.markKept(visits); updateSavedState();
+  toast("Opening your email app — send it to yourself to keep this map", null);
+};
+$("#clearMap").onclick = () => {
+  if (!Object.keys(visits).length) return toast("The map is already empty", null);
+  const prev = structuredClone(visits);
+  select(null); closePanel();
+  commit({});
+  // Destructive, so it gets the same Undo the rest of the app uses rather than
+  // a confirm dialog — one click to undo beats one click to confirm every time.
+  toast("Map cleared", () => commit(prev));
+};
+
+/* ── "official count" corner card ── */
+const aboutBtn = $("#aboutBtn"), aboutCard = $("#aboutCard");
+function toggleAbout(open) {
+  aboutCard.classList.toggle("open", open); aboutCard.setAttribute("aria-hidden", !open); aboutCard.inert = !open;
+  aboutBtn.setAttribute("aria-expanded", open);
+}
+aboutBtn.onclick = () => toggleAbout(!aboutCard.classList.contains("open"));
+addEventListener("click", (e) => { if (aboutCard.classList.contains("open") && !e.target.closest(".about")) toggleAbout(false); });
+
+/* ── global keys ── */
+addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if ($("#panel").classList.contains("open")) closePanel();
+  else if (pop.classList.contains("open")) select(null);
+  else if (aboutCard.classList.contains("open")) toggleAbout(false);
+});
+addEventListener("resize", () => { fit(); apply(home()); });
+
+/* ── study controls ── */
+document.querySelectorAll("#palettes button").forEach((b) => (b.onclick = () => {
+  document.documentElement.dataset.palette = b.dataset.p;
+  document.querySelectorAll("#palettes button").forEach((x) => x.setAttribute("aria-pressed", x === b));
+}));
+$("#clear").onclick = () => { select(null); commit({}); };
+$("#sample").onclick = () => { select(null); commit(structuredClone(SAMPLE)); paint(true); };
+
+/* ── boot ── */
+$("#aboutExtraCount").textContent = $("#aboutExtraCount2").textContent = TERRITORIES.length;
+// A link beats local storage beats the study's seed data.
+const saved = Store.load();
+if (saved) visits = saved;
+syncUrl();
+renderMap(); fit(); apply(home()); renderRows();
+requestAnimationFrame(() => { svg.classList.add("ready"); setTimeout(() => paint(true), 250); });
+
+/* ── installable (PWA) ──
+   Offline + a home-screen icon are nice on their own, but the concrete reason
+   this exists (spec F20): a browser TAB's localStorage is evicted by Safari
+   after 7 days of not visiting the site — a real risk for an app opened a
+   few times a year. A home-screen install is exempt from that eviction.
+   file:// and http: (non-localhost) can't register a service worker at all,
+   so this fails silently there by design — the map still works, just without
+   the install/offline layer. */
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+  navigator.serviceWorker.register("service-worker.js").catch(() => {});
+}
+</script>
+</body>
+</html>
