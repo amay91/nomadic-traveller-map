@@ -151,29 +151,76 @@ function highlight(name, q) {
 }
 
 // ── the visited record ──────────────────────────────────────────────────
-// visits[code] = { y: number[], s?: "lived" | "home" }. `s` is a LABEL, never
-// a filter — Visited/Lived/Home all count toward "of 195" identically (spec
-// F16) — so it's omitted entirely for the default Visited, keeping the
-// common case's stored shape as small as it was before status existed.
-const STATUS = { visited: "Visited", lived: "Lived", home: "Home" };
+// visits[code] = { y: number[], s?: "lived" | "home" | "bucket" }. For the
+// first three, `s` is a LABEL, never a filter — Visited/Lived/Home all count
+// toward "of 195" identically (spec F16) — so it's omitted entirely for the
+// default Visited, keeping the common case's stored shape as small as it was
+// before status existed.
+//
+// "bucket" (added 2026-09-15, prototype) is the one exception, and it is a
+// different KIND of thing, not a fourth flavour of "been there": a bucket-list
+// place is somewhere you have NOT been. So it is the only status that is a
+// filter — it never counts toward "of 195", a continent, or the territory line
+// (stats() below), it never carries years (there's no year you haven't been
+// somewhere), and it is never offered for a place already recorded as
+// Visited/Lived/Home (app.js). Marking it Visited later is simply a status
+// change, which is exactly what should happen the day you finally go.
+const STATUS = { visited: "Visited", lived: "Lived", home: "Home", bucket: "Bucket list" };
 const yearsOf = (rec) => rec?.y ?? [];
 const statusOf = (rec) => rec?.s ?? "visited";
+const isBeen = (rec) => !!rec && rec.s !== "bucket";
+
+// ── the heatmap (added 2026-09-15, prototype) ───────────────────────────
+// A CLASSED choropleth — the standard for maps meant to be read value-by-value:
+// a small, fixed number of shades (5 — the cartographic guidance is 3–7, and
+// five or fewer for general readers) mapped to a single-hue sequential ramp
+// whose lightness falls steadily, darker meaning more.
+//
+// The breaks are FIXED and meaningful — 1 · 2 · 3 · 4–5 · 6+ — rather than
+// computed from the data (quantiles, Jenks natural breaks). Data-driven breaks
+// are the norm for a one-off statistical map, but on a personal map that grows
+// by one trip at a time they would silently move: adding a single trip could
+// shift a break and repaint countries you didn't touch, and "this shade means
+// three visits" would stop being true from one week to the next. Fixed
+// integer breaks keep every shade's meaning stable, which is what makes the
+// legend readable at all. Equal-interval is avoided for the usual reason: trip
+// counts are heavily skewed (most places 1–2, a few 10+), so the top class is
+// open-ended instead.
+//
+// A visit is a year entry (a repeated year counts as a second visit — F3), so
+// the count is exactly the table's "# Times". Lived and Home have no trip
+// count ("a count of years-present isn't a count of trips", F16), and living
+// somewhere is more exposure than any number of trips, so both take the top
+// class — their ink glyph still says which one it is. A Visited record with no
+// years at all (possible only via a hand-edited link) is still a visit: class 1.
+const HEAT_BINS = [1, 2, 3, 4, 6]; // lower bound of each class; 6 is "6+"
+function heatClass(rec) {
+  if (!rec || rec.s === "bucket") return 0;
+  if (rec.s === "lived" || rec.s === "home") return HEAT_BINS.length;
+  const n = Math.max(1, (rec.y || []).length);
+  let k = 0;
+  while (k < HEAT_BINS.length && n >= HEAT_BINS[k]) k++;
+  return k;
+}
 
 // stats(): count/pct/byContinent are OFFICIAL-195-ONLY (what the header pill
 // and "of 195" line show); territoryCount is the separate "+N territories
 // visited" line (spec F7) and never merges into the others. `placeOf(iso)`
-// resolves a code to {official, cont} — status never enters this function,
-// so there is no status filter here to get wrong.
+// resolves a code to {official, cont}. Status enters this function in exactly
+// one way: a bucket-list place is somewhere you HAVEN'T been, so it is skipped
+// by every count and tallied only as bucketCount. Visited/Lived/Home are still
+// never filtered against each other.
 function stats(visits, placeOf) {
   const byContinent = {};
-  let count = 0, territoryCount = 0;
+  let count = 0, territoryCount = 0, bucketCount = 0;
   for (const iso of Object.keys(visits)) {
     const p = placeOf(iso);
     if (!p) continue; // shouldn't happen — decodeMap/validateImport gate unknown codes
+    if (visits[iso].s === "bucket") { bucketCount++; continue; }
     if (p.official) { count++; byContinent[p.cont] = (byContinent[p.cont] || 0) + 1; }
     else territoryCount++;
   }
-  return { count, pct: (count / 195) * 100, byContinent, territoryCount };
+  return { count, pct: (count / 195) * 100, byContinent, territoryCount, bucketCount };
 }
 
 // ── the map IS the URL ──────────────────────────────────────────────────
@@ -195,10 +242,20 @@ function encYear(e) {
   if (typeof e === "number") return enc36(e - Y0);
   return "~" + enc36(e.from - Y0) + (e.to === null ? "" : enc36(e.to - Y0)) + "~";
 }
+// Status marks: "!" Lived, "*" Home, "_" Bucket list. The bucket mark is an
+// underscore specifically: a bucket-list place never has years, so its mark
+// is ALWAYS the last character of its entry — and if that entry sorts last,
+// the last character of the whole link. Mail clients' auto-linkers routinely
+// strip trailing punctuation like "." or "!" off a link (they read it as the
+// end of a sentence), which would silently turn a bucket-list place into a
+// visit. "_" is an unreserved URL character that auto-linkers treat as part of
+// the word, and it is safe inside URLSearchParams (unlike "+", which decodes
+// to a space).
+const MARK = { lived: "!", home: "*", bucket: "_" };
 function encodeMap(v) {
   return Object.keys(v).sort().map((iso) => {
-    const mark = v[iso].s === "lived" ? "!" : v[iso].s === "home" ? "*" : "";
-    return iso + mark + (v[iso].y || []).map(encYear).join("");
+    const mark = MARK[v[iso].s] || "";
+    return iso + mark + (v[iso].s === "bucket" ? "" : (v[iso].y || []).map(encYear).join(""));
   }).join("-");
 }
 function decodeYears(rest, max) {
@@ -235,6 +292,7 @@ function decodeMap(str, isKnown) {
     let rest = part.slice(3), s;
     if (rest[0] === "!") { s = "lived"; rest = rest.slice(1); }
     else if (rest[0] === "*") { s = "home"; rest = rest.slice(1); }
+    else if (rest[0] === "_") { s = "bucket"; rest = ""; } // never has years; ignore anything after the mark
     const y = decodeYears(rest, max);
     out[iso] = s ? { y, s } : { y };
   }
@@ -256,7 +314,8 @@ function validateImport(obj, isKnown) {
   for (const [iso, rec] of Object.entries(obj.visits)) {
     if (!/^[A-Z]{3}$/.test(iso) || !isKnown(iso)) return { error: `"${iso}" isn't a country or territory this map knows about.` };
     if (!rec || typeof rec !== "object" || !Array.isArray(rec.y)) return { error: `${iso}'s entry is malformed.` };
-    if (rec.s !== undefined && rec.s !== "lived" && rec.s !== "home") return { error: `${iso} has an invalid status "${rec.s}".` };
+    if (rec.s !== undefined && rec.s !== "lived" && rec.s !== "home" && rec.s !== "bucket") return { error: `${iso} has an invalid status "${rec.s}".` };
+    if (rec.s === "bucket") { visits[iso] = { y: [], s: "bucket" }; continue; } // somewhere you haven't been has no years
     const y = [];
     for (const e of rec.y) {
       if (typeof e === "number") {
@@ -279,8 +338,8 @@ function validateImport(obj, isKnown) {
 
 window.Logic = {
   normalize, wordNormalize, search, exact, parseYears, esc, highlight,
-  STATUS, yearsOf, statusOf, stats, encodeMap, decodeMap, validateImport,
-  latestYear, formatYearsEdit, formatYearsDisplay, mergeYears,
+  STATUS, yearsOf, statusOf, isBeen, stats, encodeMap, decodeMap, validateImport,
+  latestYear, formatYearsEdit, formatYearsDisplay, mergeYears, HEAT_BINS, heatClass,
 };
 
 })();

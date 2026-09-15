@@ -19,7 +19,7 @@ const load = (f) => {
 };
 const { COUNTRIES, TERRITORIES, CONTINENTS } = load("countries.js");
 const { Logic } = load("logic.js");
-const { search, exact, parseYears, highlight, esc, stats, encodeMap, decodeMap, validateImport, yearsOf, statusOf, STATUS, latestYear, formatYearsEdit, formatYearsDisplay, mergeYears } = Logic;
+const { search, exact, parseYears, highlight, esc, stats, encodeMap, decodeMap, validateImport, yearsOf, statusOf, STATUS, latestYear, formatYearsEdit, formatYearsDisplay, mergeYears, heatClass, HEAT_BINS, isBeen } = Logic;
 
 const PLACES = [
   ...COUNTRIES.map((c) => ({ iso: c[0], name: c[2], cont: c[3], aliases: c.slice(4), official: true })),
@@ -123,6 +123,44 @@ test("mergeYears: periods merge and dedupe by deep equality, not by reference", 
   assert.deepEqual(j(mergeYears([{ from: 2011, to: 2014 }], [{ from: 2023, to: null }])), [{ from: 2011, to: 2014 }, { from: 2023, to: null }], "a genuinely different period is appended");
   assert.deepEqual(j(mergeYears([{ from: 2023, to: null }], [{ from: 2023, to: 2024 }])), [{ from: 2023, to: 2024 }, { from: 2023, to: null }], "same start, different end: NOT a duplicate (ongoing always sorts last, per yearKey)");
   assert.deepEqual(j(mergeYears([2019], [{ from: 2011, to: 2014 }])), [{ from: 2011, to: 2014 }, 2019], "a plain year and a period never collide as duplicates of each other");
+});
+
+test("heatClass: fixed breaks 1 · 2 · 3 · 4–5 · 6+ (prototype 2026-09-15)", () => {
+  const v = (n) => ({ y: Array.from({ length: n }, (_, i) => 2000 + i) });
+  assert.deepEqual(j(HEAT_BINS), [1, 2, 3, 4, 6]);
+  assert.equal(heatClass(undefined), 0, "not on the map: no shade");
+  assert.deepEqual([1, 2, 3, 4, 5, 6, 7, 20].map((n) => heatClass(v(n))), [1, 2, 3, 4, 4, 5, 5, 5]);
+  assert.equal(heatClass({ y: [2019, 2019] }), 2, "a repeated year is a second visit (F3), so it deepens the shade");
+  assert.equal(heatClass({ y: [] }), 1, "a visit with no years (only reachable via a hand-edited link) is still a visit");
+  assert.equal(heatClass({ y: [{ from: 2011, to: 2014 }], s: "lived" }), 5, "Lived takes the top class — no trip count, more exposure than any");
+  assert.equal(heatClass({ y: [], s: "home" }), 5, "Home too, even with no years");
+  assert.equal(heatClass({ y: [], s: "bucket" }), 0, "a bucket-list place is somewhere you haven't been: no heat");
+});
+test("bucket list: never counted, never shaded, never given years", () => {
+  const visits = { JPN: { y: [2019] }, PER: { y: [], s: "bucket" }, BRA: { y: [], s: "bucket" }, PRI: { y: [], s: "bucket" } /* territory */ };
+  const s = stats(visits, placeOf);
+  assert.equal(s.count, 1, "only JPN counts toward of 195");
+  assert.equal(s.territoryCount, 0, "a bucket-list territory isn't a visited territory either");
+  assert.equal(s.bucketCount, 3);
+  assert.equal(s.byContinent.SA, undefined, "no continent credit for somewhere you haven't been");
+  assert.equal(isBeen(visits.JPN), true);
+  assert.equal(isBeen(visits.PER), false);
+  assert.equal(isBeen(undefined), false);
+});
+test("bucket list round-trips through the link, and its mark survives being the last character", () => {
+  const visits = { JPN: { y: [2019] }, ZWE: { y: [], s: "bucket" } };
+  const code = encodeMap(visits);
+  assert.ok(code.endsWith("ZWE_"), `ZWE sorts last, so the bucket mark is the link's final character: ${code}`);
+  assert.deepEqual(j(decodeMap(code, isKnown)), visits);
+  // the app reads the link through URLSearchParams — "+" would decode to a space there; "_" must not
+  assert.deepEqual(j(decodeMap(new URLSearchParams("m=" + code).get("m"), isKnown)), visits);
+  assert.deepEqual(j(decodeMap("PER_3b", isKnown)), { PER: { y: [], s: "bucket" } }, "years after a bucket mark are ignored, not trusted");
+  assert.equal(encodeMap({ PER: { y: [2019], s: "bucket" } }), "PER_", "a bucket entry never writes years, even if handed some");
+});
+test("validateImport: bucket list accepted, and normalised to no years", () => {
+  const r = validateImport({ v: 1, visits: { PER: { y: [2019], s: "bucket" }, JPN: { y: [2019] } } }, isKnown);
+  assert.deepEqual(j(r), { visits: { PER: { y: [], s: "bucket" }, JPN: { y: [2019] } } });
+  assert.match(validateImport({ v: 1, visits: { PER: { y: [], s: "wishlist" } } }, isKnown).error, /invalid status/);
 });
 
 test("latestYear: the largest sortable year, ongoing periods always winning", () => {

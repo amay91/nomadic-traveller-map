@@ -5,6 +5,20 @@
 :root{
   --water:#7C99B4; --land:#E9DCC3; --land-hi:#D6CAB3; --visited:#9C3826; --visited-hi:#8C3222;
   --dot:#C8BDA8; --border-line:#3F3529;
+  /* Heatmap ramp + bucket list (prototype, 2026-09-15). Built in OKLCH on the
+     app's own visited red (hue 32°), lightness stepping down 0.80 → 0.36 —
+     the standard single-hue sequential choropleth: darker means more. Not
+     ColorBrewer's Reds/OrRd, measured against this map: their lightest class
+     sits at ΔE 4.6–6.2 from the beige land and all but vanishes; this one is
+     12.0. Class 3 is nudged a touch darker than an even step so its white
+     label clears 4.5:1 at the rendered 0.95 opacity (4.88; the even-step value
+     gave 4.30). Class 4 is, deliberately, almost exactly the classic visited
+     red. --bucket is indigo: of six candidates it was the only one that stays
+     far from every ramp class, the land AND the water under deutan, protan and
+     tritan simulation (worst case ΔE 17; gold and sage collapse to ~2 under
+     tritanopia). */
+  --h1:#EFAA9B; --h2:#DE7C69; --h3:#B84834; --h4:#9C311E; --h5:#6D1D0F;
+  --bucket:#4C579B; --lbl-pale:#231A13;
   --ink:#2B3640; --muted:#55636E; --hair:#E3E8EC; --surface:rgba(255,255,255,.92); --error:#A94F3A;
   --shadow:0 1px 2px rgba(30,45,60,.06),0 10px 30px rgba(30,45,60,.12);
   --ease:cubic-bezier(.2,.8,.2,1); --spring:cubic-bezier(.34,1.56,.64,1);
@@ -52,11 +66,25 @@ button{cursor:pointer}
    which small-caps glyphs this small otherwise read as slightly cramped. */
 .lbl{fill:var(--border-line);font-weight:600;font-variant:small-caps;letter-spacing:.02em;
   text-anchor:middle;dominant-baseline:middle;pointer-events:none;user-select:none}
-.lbl.is-visited{fill:#FBF6EC}
-.c.is-visited{fill:var(--visited)}
-.c.is-visited:hover{fill:var(--visited-hi)}
+/* Label ink follows the fill it sits on, class by class (measured at the
+   rendered 0.95 opacity): the two pale heat classes take a deep ink (8.1 and
+   5.5:1), everything darker — heat 3–5, classic visited, bucket — takes white
+   (4.9–10.5:1). One light colour never works across a whole ramp: the middle
+   of any lightness scale is exactly where neither dark nor light text passes. */
+.lbl.is-visited{fill:#FFFFFF}
+.lbl.on-pale{fill:var(--lbl-pale)}
+/* --f carries the fill so hover can darken whatever shade a place has with one
+   rule, instead of a hand-picked hover colour per class. */
+.c.is-visited{--f:var(--visited);fill:var(--f)}
+body:not(.heat-off) .c.h1{--f:var(--h1)}
+body:not(.heat-off) .c.h2{--f:var(--h2)}
+body:not(.heat-off) .c.h3{--f:var(--h3)}
+body:not(.heat-off) .c.h4{--f:var(--h4)}
+body:not(.heat-off) .c.h5{--f:var(--h5)}
+.c.is-bucket{--f:var(--bucket);fill:var(--f)}
+.c.is-visited:hover,.c.is-bucket:hover{fill:color-mix(in oklab,var(--f) 84%,#000)}
 .c.is-selected{transform:scale(1.06);filter:url(#lift)}
-.c.is-selected:not(.is-visited){fill:var(--land-hi)}
+.c.is-selected:not(.is-visited):not(.is-bucket){fill:var(--land-hi)}
 .dot.is-selected{transform:scale(1.7)}
 .ripple{fill:none;stroke:var(--visited);stroke-width:2.5px;vector-effect:non-scaling-stroke;pointer-events:none;
   transform-box:fill-box;transform-origin:center;animation:ripple .7s var(--ease) forwards}
@@ -119,7 +147,19 @@ button{cursor:pointer}
    room from the inputs that do. */
 .statusField{flex:0 0 auto;padding:6px 10px}
 .statusField label{margin-bottom:3px}
-.statusField .statusRow{margin:0;width:176px}
+.statusField .statusRow{margin:0;width:236px}
+/* 641–1199px: once the picker gained its 4th option (Bucket list) the bar is
+   too narrow for three fields in one row — measured at 1024px: Country 88px
+   and Year(s) 65px wide, both narrower than their own placeholder text (154
+   and 99px); at 700px, 62 and 46. The picker drops to its own row inside the
+   bar instead, which gives the two text fields the whole first row back. */
+@media (min-width:641px) and (max-width:1199px){
+  .bar{flex-wrap:wrap}
+  .statusField{order:5;flex:1 1 100%;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:12px;padding:2px 10px 4px}
+  .statusField::before{display:none}
+  .statusField label{margin:0}
+  .statusField .statusRow{width:auto;flex:1;max-width:360px}
+}
 .statusField .statusRow button{padding:4px 0;font-size:11.5px}
 .field label{font-size:11px;font-weight:600;letter-spacing:.3px;color:var(--muted)}
 .field input{border:0;outline:0;background:transparent;padding:2px 0 0;font-size:15px;width:100%}
@@ -142,6 +182,7 @@ button{cursor:pointer}
 .list li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 10px;border-radius:9px;cursor:pointer;font-size:14.5px}
 .list li small{font-size:12px;color:var(--muted);white-space:nowrap}
 .list li small i{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--visited);margin-right:5px;vertical-align:1px}
+.list li small i.bucket{background:var(--bucket)}
 .list li[aria-selected=true]{background:color-mix(in srgb,var(--visited) 14%,#fff)}
 .list li mark{background:none;color:inherit;font-weight:650}
 .list .none{color:var(--muted);cursor:default;font-size:13px}
@@ -156,7 +197,7 @@ button{cursor:pointer}
 .pop input{display:block;width:100%;margin-top:4px;padding:10px 12px;border:1px solid var(--hair);border-radius:10px;font-size:15px;background:#fff;outline:0;transition:border-color .15s,box-shadow .15s}
 .pop input:focus{border-color:#B9C4CC;box-shadow:0 0 0 3px color-mix(in srgb,var(--visited) 18%,transparent)}
 .pop .perr{min-height:18px;margin:6px 0 4px;font-size:12.5px;color:var(--error)}
-.statusRow{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin:0 0 12px;padding:3px;background:#F1F4F6;border-radius:10px}
+.statusRow{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px;margin:0 0 12px;padding:3px;background:#F1F4F6;border-radius:10px}
 .statusRow button{border:0;background:transparent;border-radius:7px;padding:6px 0;font-size:12.5px;color:var(--muted);transition:background .15s,color .15s}
 .statusRow button:hover{color:var(--ink)}
 .statusRow button[aria-pressed=true]{background:#fff;color:var(--ink);font-weight:650;box-shadow:0 1px 2px rgba(30,45,60,.10)}
@@ -211,12 +252,59 @@ td.name i{position:absolute;left:13px;top:17px;width:8px;height:8px;border-radiu
 .tbadge.on{border-color:var(--ink);color:var(--ink)}
 td.name i.lived{box-shadow:0 0 0 2px var(--ink) inset;background:transparent}
 td.name i.home{box-shadow:0 0 0 2px var(--ink);background:var(--visited)}
+/* the row's dot wears the same shade as the country on the map */
+body:not(.heat-off) td.name i.h1{background:var(--h1)}
+body:not(.heat-off) td.name i.h2{background:var(--h2)}
+body:not(.heat-off) td.name i.h3{background:var(--h3)}
+body:not(.heat-off) td.name i.h4{background:var(--h4)}
+body:not(.heat-off) td.name i.h5:not(.lived){background:var(--h5)}
+td.name i.bucket{background:var(--bucket)}
+.tbadge.on.bucket{border-color:var(--bucket);color:var(--bucket)}
+tr.grp,tr.grp:hover{cursor:default;background:none}
+tr.grp td{padding:16px 12px 6px;font-size:11px;font-weight:650;letter-spacing:.3px;text-transform:uppercase;color:var(--bucket)}
 
 /* Lived/Home are marked with a small ink glyph at the place's centre, not a
    third and fourth fill colour — the palette stays water + land + visited. */
 .mk{pointer-events:none;stroke:var(--ink);stroke-width:1.6px;vector-effect:non-scaling-stroke}
 .mk-lived{fill:none}
 .mk-home{fill:var(--ink);stroke:#fff;stroke-width:1.4px}
+/* With the heatmap on, Lived/Home always sit on the darkest class, where the
+   ink glyph measures 1.08:1 — invisible. Light glyph there: 10.6:1. */
+body:not(.heat-off) .mk{stroke:#FBF6EC}
+body:not(.heat-off) .mk-home{fill:#FBF6EC;stroke:var(--ink)}
+.statusRow button:disabled{opacity:.35;cursor:not-allowed}
+.statusRow button[data-s=bucket][aria-pressed=true]{color:var(--bucket)}
+.field input:disabled,.pop input:disabled{opacity:.55;cursor:not-allowed}
+
+/* ── map key (prototype 2026-09-15) ──
+   A classed map is only readable with its legend in view, so the key lives on
+   the map rather than behind a menu. Top-left, under the wordmark: the one
+   corner nothing else uses at any width. */
+.legend{position:fixed;left:16px;top:66px;z-index:4;padding:8px 10px;border-radius:12px;
+  display:flex;flex-direction:column;gap:7px;font-size:11px;color:var(--muted)}
+.lgRow{display:flex;align-items:center;gap:8px}
+.lgTitle{font-size:10px;font-weight:650;letter-spacing:.35px;text-transform:uppercase}
+.lgRamp{display:flex;gap:2px;margin:0;padding:0;list-style:none}
+.lgRamp li{min-width:25px;height:18px;padding:0 4px;display:grid;place-items:center;border-radius:3px;
+  font-size:10.5px;font-weight:650;font-variant-numeric:tabular-nums;color:#fff}
+.lgRamp .h1{background:var(--h1);color:var(--lbl-pale)}
+.lgRamp .h2{background:var(--h2);color:var(--lbl-pale)}
+.lgRamp .h3{background:var(--h3)}
+.lgRamp .h4{background:var(--h4)}
+.lgRamp .h5{background:var(--h5)}
+.lgSw{display:inline-block;width:14px;height:14px;border-radius:3px;flex:none}
+.lgBucket{display:flex;align-items:center;gap:6px;color:var(--ink);font-weight:600}
+.lgBucket .lgSw{background:var(--bucket)}
+.lgFlat{display:none;align-items:center;gap:6px;color:var(--ink);font-weight:600}
+.lgFlat .lgSw{background:var(--visited)}
+.heat-off .lgRamp,.heat-off .lgTitle{display:none}
+.heat-off .lgFlat{display:flex}
+.lgToggle{margin-left:auto;display:flex;align-items:center;gap:5px;cursor:pointer;color:var(--ink);font-weight:600;user-select:none}
+.lgToggle input{margin:0;width:14px;height:14px;accent-color:var(--visited);cursor:pointer}
+@media (max-width:640px){
+  .legend{left:12px;top:62px}
+  tbody tr.grp{display:block}
+}
 .r{text-align:right}
 th.r button{width:100%;text-align:right}
 tfoot td{position:sticky;bottom:0;background:#fff;border-top:1px solid var(--hair);border-bottom:0;padding:14px 12px;font-size:13.5px}
@@ -338,11 +426,13 @@ tfoot b{font-size:16px}
    counts pill had). Flanking resumes at 901px, where there is room for it. */
 @media (min-width:641px) and (max-width:900px){
   :root{--barW:min(760px,calc(100vw - 160px))}
-  /* 108px, raised from 84px once the bar gained the status field: the bar is now
-     71–78px tall, so its top edge sits 91–98px from the bottom and the old row
-     was landing inside it. Measured, not nudged. */
-  .about{bottom:108px}
-  .dockBtn{bottom:108px}
+  /* 134px. Was 84, then 108 once the bar gained the status field (71–78px
+     tall); now 134 because in this band the 4-option picker wraps to its own
+     row and the bar is 104px tall — top edge 124px from the bottom, measured
+     off the overlap check (a 16px collision at 660/700/900 with the row at
+     108). Every time the bar's height changes, this number must follow it. */
+  .about{bottom:134px}
+  .dockBtn{bottom:134px}
   #clearMap{right:auto;left:224px}
   #emailMap{left:322px}
 }

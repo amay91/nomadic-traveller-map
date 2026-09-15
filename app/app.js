@@ -4,7 +4,8 @@
 // rule logic.js already owns. Classic script (plan.md L1), so this and
 // logic.js/countries.js/geo.js all share the same global scope by design.
 const { search, exact, parseYears, esc, highlight, STATUS, yearsOf, statusOf, stats,
-        encodeMap, decodeMap, validateImport, latestYear, formatYearsEdit, formatYearsDisplay, mergeYears } = Logic;
+        encodeMap, decodeMap, validateImport, latestYear, formatYearsEdit, formatYearsDisplay, mergeYears,
+        isBeen, heatClass, HEAT_BINS } = Logic;
 
 const $ = (s) => document.querySelector(s);
 const svg = $("#map");
@@ -114,23 +115,38 @@ const els = (iso) => svg.querySelectorAll(`[data-iso="${iso}"]`);
 // layer above the fills so it survives a selection raising a path to the top.
 function renderMarks() {
   $("#marks").innerHTML = Object.keys(visits)
-    .filter((iso) => statusOf(visits[iso]) !== "visited" && GEO.a[iso])
+    .filter((iso) => (visits[iso].s === "lived" || visits[iso].s === "home") && GEO.a[iso])
     .map((iso) => `<circle class="mk mk-${statusOf(visits[iso])}" cx="${GEO.a[iso][0]}" cy="${GEO.a[iso][1]}" r="2"/>`)
     .join("");
   sizeToScreen();
 }
 function paint(stagger) {
+  // Every place gets at most one of: a heat class h1–h5 (how many times you've
+  // been — logic.js heatClass), or is-bucket (somewhere you haven't been yet).
+  // The classes are applied whether or not the heatmap is switched on; CSS
+  // decides what they look like (body.heat-off falls back to the one classic
+  // red), so toggling it never has to rebuild any state.
   svg.querySelectorAll(".c").forEach((e) => {
-    const on = !!visits[e.dataset.iso];
-    if (stagger && on) e.style.transitionDelay = `${Math.random() * 700}ms`;
-    e.classList.toggle("is-visited", on);
+    const rec = visits[e.dataset.iso], k = heatClass(rec);
+    if (stagger && rec) e.style.transitionDelay = `${Math.random() * 700}ms`;
+    e.classList.toggle("is-visited", isBeen(rec));
+    e.classList.toggle("is-bucket", rec?.s === "bucket");
+    for (let i = 1; i <= HEAT_BINS.length; i++) e.classList.toggle("h" + i, k === i);
   });
   if (stagger) setTimeout(() => svg.querySelectorAll(".c").forEach((e) => (e.style.transitionDelay = "")), 1400);
   // A label's own fill has to flip along with its country's — a dark label
   // reads fine on land but disappears on the dark red visited fill (measured:
   // 8.8:1 vs 1.7:1), so it needs the light variant .lbl.is-visited sets up in
-  // CSS, exactly mirrored from the same on/off state as the path itself.
-  svg.querySelectorAll(".lbl").forEach((t) => t.classList.toggle("is-visited", !!visits[t.dataset.iso]));
+  // CSS, exactly mirrored from the same state as the path itself. With the
+  // heatmap there are now three cases, not two: the two PALE classes (1–2
+  // visits) are too light for white text and take a deep ink instead; every
+  // darker fill — heat 3–5, classic red, bucket indigo — takes white.
+  svg.querySelectorAll(".lbl").forEach((t) => {
+    const rec = visits[t.dataset.iso], k = heatClass(rec);
+    const pale = heatOn && (k === 1 || k === 2);
+    t.classList.toggle("on-pale", pale);
+    t.classList.toggle("is-visited", rec?.s === "bucket" || (k > 0 && !pale));
+  });
   renderMarks();
   // Official-195-only, via logic.js's stats() — territories are tracked but
   // kept out of "of 195" (spec F16), and this is the one seam that rule has
@@ -167,7 +183,8 @@ function fit() {
 // window of the visible width across them and keep the position covering the
 // most, centred on those it covers.
 function focusX(w) {
-  const xs = Object.keys(visits).map((c) => GEO.a[c]?.[0]).filter((n) => n != null).sort((a, b) => a - b);
+  // frame the places you've actually BEEN — a bucket list is somewhere else by definition
+  const xs = Object.keys(visits).filter((c) => isBeen(visits[c])).map((c) => GEO.a[c]?.[0]).filter((n) => n != null).sort((a, b) => a - b);
   if (!xs.length) return 545; // Europe · Africa · Middle East, before there's anything of yours to centre on
   let best = xs[0], most = 0;
   for (const x of xs) {
@@ -367,7 +384,7 @@ function updateLabels(scale) {
     // down to 4.08:1, under the 4.5 minimum, on already-small ~10px text.
     // 0.9/0.95 blend to 6.8:1 / 6.0:1 — comfortably legible, still short of
     // full-strength "loud."
-    el.style.opacity = shown * (el.classList.contains("is-visited") ? 0.95 : 0.9);
+    el.style.opacity = shown * (el.classList.contains("is-visited") || el.classList.contains("on-pale") ? 0.95 : 0.9);
     // Name vs. code, three rules in priority order:
     //
     // 0. ON A PHONE, ALWAYS THE CODE — full stop, at any zoom. Reported
@@ -613,8 +630,24 @@ let pendingStatus = "visited";
 //     is needed, instead of only in an error message after a failed guess.
 function paintStatus(row, label, input, s) {
   document.querySelectorAll(`${row} button`).forEach((b) => b.setAttribute("aria-pressed", b.dataset.s === s));
-  $(label).textContent = s === "lived" ? "Year(s) lived there" : s === "home" ? "Year(s) — optional" : "Year(s) visited";
-  $(input).placeholder = s === "visited" ? "e.g. 2019, 2023" : "e.g. 2011-2014, or 2023- if ongoing";
+  $(label).textContent = s === "lived" ? "Year(s) lived there" : s === "home" ? "Year(s) — optional"
+    : s === "bucket" ? "Year(s) — not needed" : "Year(s) visited";
+  const inp = $(input);
+  inp.placeholder = s === "visited" ? "e.g. 2019, 2023" : s === "bucket" ? "Not needed — you haven't been yet"
+    : "e.g. 2011-2014, or 2023- if ongoing";
+  // There is no year you haven't been somewhere, so the field steps aside
+  // rather than accepting text that would be silently thrown away on save.
+  inp.disabled = s === "bucket";
+  if (s === "bucket") inp.value = "";
+}
+// Bucket list is only for somewhere you HAVEN'T been. Offering it for a place
+// already on the map would let a single tap convert a visit into a wish and
+// quietly delete its years, so it's disabled there (the other direction —
+// bucket → Visited — is always open: that's the day you finally go).
+function lockBucket(row, iso) {
+  const b = $(`${row} button[data-s="bucket"]`), been = isBeen(visits[iso]);
+  b.disabled = been;
+  b.title = been ? "Already on your map — the bucket list is for places you haven't been yet" : "";
 }
 function setStatus(s) {
   pendingStatus = s;
@@ -641,6 +674,7 @@ function openPop(iso) {
   // nothing a range was even set, which undersold the point of having one.
   // Visited keeps its plain count; a trip count was never about dates.
   const note = !rec ? "not visited yet"
+    : st === "bucket" ? "on your bucket list"
     : st === "home" ? "home country" + (ys.length ? " · " + formatYearsDisplay(ys) : "")
     : st === "lived" ? "lived there" + (ys.length ? " · " + formatYearsDisplay(ys) : "")
     : `visited ${ys.length}×`;
@@ -649,6 +683,7 @@ function openPop(iso) {
   $("#popErr").textContent = "";
   $("#popRemove").hidden = !rec;
   setStatus(st);
+  lockBucket("#popStatus", iso);
   // anchor beside the country's on-screen box
   let r = null;
   els(iso).forEach((e) => { const b = e.getBoundingClientRect(); r = r ? { left: Math.min(r.left, b.left), right: Math.max(r.right, b.right), top: Math.min(r.top, b.top), bottom: Math.max(r.bottom, b.bottom) } : b; });
@@ -704,7 +739,9 @@ $("#popForm").addEventListener("submit", (e) => {
   // "visited continuously from X to Y" isn't a coherent idea the way "lived
   // there from X to Y" is, so Visited keeps its plain-years-only grammar.
   const raw = $("#popYears").value.trim();
-  const r = pendingStatus === "home" && !raw ? { years: [] } : parseYears(raw, new Date().getFullYear(), pendingStatus !== "visited");
+  if (pendingStatus === "bucket" && isBeen(visits[selected])) { $("#popErr").textContent = "Already on your map — the bucket list is for places you haven't been yet"; return; }
+  const r = pendingStatus === "bucket" || (pendingStatus === "home" && !raw) ? { years: [] }
+    : parseYears(raw, new Date().getFullYear(), pendingStatus !== "visited");
   if (r.error) { $("#popErr").textContent = r.error; return; }
   const iso = selected; closePop(); save(iso, r.years, pendingStatus);
   setTimeout(() => selected === iso && select(null), 900);
@@ -771,7 +808,7 @@ function renderList() {
   list.style.width = onPhone ? a.width + "px" : Math.min(340, innerWidth - 32) + "px";
   list.style.bottom = innerHeight - a.top + 12 + "px";
   list.innerHTML = opts.length
-    ? opts.map((c, i) => `<li role="option" id="o${i}" data-iso="${c.iso}" aria-selected="${i === active}"><span>${highlight(c.name, cIn.value)}</span><small>${visits[c.iso] ? `<i></i>${formatYearsDisplay(yearsOf(visits[c.iso])) || STATUS[statusOf(visits[c.iso])]}` : CONTINENTS[c.cont]}${c.official ? "" : " · Territory"}</small></li>`).join("")
+    ? opts.map((c, i) => `<li role="option" id="o${i}" data-iso="${c.iso}" aria-selected="${i === active}"><span>${highlight(c.name, cIn.value)}</span><small>${visits[c.iso] ? `<i class="${statusOf(visits[c.iso])}"></i>${formatYearsDisplay(yearsOf(visits[c.iso])) || STATUS[statusOf(visits[c.iso])]}` : CONTINENTS[c.cont]}${c.official ? "" : " · Territory"}</small></li>`).join("")
     : `<li class="none">No country matches “${esc(cIn.value.trim())}”</li>`;
   cIn.setAttribute("aria-activedescendant", active >= 0 ? "o" + active : "");
   list.querySelector("[aria-selected=true]")?.scrollIntoView({ block: "nearest" });
@@ -787,13 +824,14 @@ function choose(iso) {
   // than the missing choice it was added to fix, since the old code at least
   // preserved an existing status. Changing it is now a deliberate act.
   setBarStatus(statusOf(visits[iso]));
+  lockBucket("#barStatus", iso);
   closePop(); select(iso, false); flyTo(iso);
   yIn.focus();
 }
 // Retyping the country abandons the previous one, so the status it carried must
 // go with it — otherwise picking India (Home), then clearing and typing Japan,
 // would leave "Home" selected and quietly file Japan as a home country.
-cIn.addEventListener("input", () => { chosen = null; setBarStatus("visited"); opts = search(cIn.value, PLACES); active = opts.length ? 0 : -1; showErr(""); renderList(); });
+cIn.addEventListener("input", () => { chosen = null; setBarStatus("visited"); lockBucket("#barStatus", null); opts = search(cIn.value, PLACES); active = opts.length ? 0 : -1; showErr(""); renderList(); });
 cIn.addEventListener("keydown", (e) => {
   if (!list.classList.contains("open")) return;
   if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); if (opts.length) { active = (active + (e.key === "ArrowDown" ? 1 : -1) + opts.length) % opts.length; renderList(); } }
@@ -803,7 +841,7 @@ cIn.addEventListener("keydown", (e) => {
 // Typing a full country name and clicking away resolves it here, without ever
 // going through choose() — so the picker has to be brought in line here too, or
 // it would show "Visited" for a country the app still holds as Home.
-cIn.addEventListener("blur", () => setTimeout(() => { closeList(); if (!chosen) { const iso = exact(cIn.value, PLACES); if (iso) { chosen = iso; if (!barStatusTouched) setBarStatus(statusOf(visits[iso])); } } }, 120));
+cIn.addEventListener("blur", () => setTimeout(() => { closeList(); if (!chosen) { const iso = exact(cIn.value, PLACES); if (iso) { chosen = iso; if (!barStatusTouched) setBarStatus(statusOf(visits[iso])); lockBucket("#barStatus", iso); } } }, 120));
 cIn.addEventListener("focus", () => { if (cIn.value && !chosen) renderList(); });
 list.addEventListener("mousedown", (e) => { e.preventDefault(); const li = e.target.closest("li[data-iso]"); if (li) choose(li.dataset.iso); });
 function showErr(msg) {
@@ -865,7 +903,10 @@ bar.addEventListener("submit", (e) => {
   // silently preserved an existing status and could never assign one.
   const rec = visits[iso], existingStatus = statusOf(rec);
   const s = barStatusTouched ? barStatus : existingStatus;
-  const r = s === "home" && !raw ? { years: [] } : parseYears(raw, new Date().getFullYear(), s !== "visited");
+  // Guard the one path the disabled button can't: picking Bucket list, then
+  // typing a place that's already on the map and submitting straight away.
+  if (s === "bucket" && isBeen(rec)) { showErr(`${PLACE.get(iso).name} is already on your map — the bucket list is for places you haven't been yet`); return; }
+  const r = s === "bucket" || (s === "home" && !raw) ? { years: [] } : parseYears(raw, new Date().getFullYear(), s !== "visited");
   if (r.error) { showErr(r.error); yIn.focus(); return; }
   // ADD to what's already recorded rather than replace it (owner report,
   // 2026-09-15): typing a country a second time to fill in a year forgotten the
@@ -893,18 +934,25 @@ function renderRows(enter) {
     const c = PLACE.get(iso), rec = visits[iso], ys = yearsOf(rec), st = statusOf(rec);
     // "# times" only means something for a visit — for somewhere you live or
     // are from, a count of years-present isn't a count of trips.
-    return { iso, name: c.name, official: c.official, ys, st, times: st === "visited" ? ys.length : null,
+    return { iso, name: c.name, official: c.official, ys, st, heat: heatClass(rec), times: st === "visited" ? ys.length : null,
              cont: CONTINENTS[c.cont], last: latestYear(ys) };
   });
   const key = { name: (r) => r.name, years: (r) => r.last, times: (r) => r.times, cont: (r) => r.cont }[sort.col];
   rows.sort((a, b) => { const x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir || a.name.localeCompare(b.name); });
+  // Places you've been first, then the bucket list as its own group — it's a
+  // different list (somewhere you HAVEN'T been), so it never interleaves with
+  // the visits whatever the sort, and never counts in the total below.
+  const been = rows.filter((r) => r.st !== "bucket"), wish = rows.filter((r) => r.st === "bucket");
+  const row = (r, i) => `<tr data-iso="${r.iso}" style="--i:${i}" tabindex="0" aria-label="${esc(r.name)}, ${r.st === "bucket" ? "on your bucket list, " : ""}edit or remove"><td class="name"><i class="${r.st} h${r.heat}"></i>${esc(r.name)}${r.st === "visited" ? "" : `<span class="tbadge on ${r.st}">${STATUS[r.st]}</span>`}${r.official ? "" : '<span class="tbadge">Territory</span>'}</td><td class="num">${formatYearsDisplay(r.ys) || "<span class=muted>—</span>"}</td><td class="r num">${r.times ?? "<span class=muted>—</span>"}</td><td class="muted cont">${r.cont}</td></tr>`;
   const tb = $("#rows");
-  tb.innerHTML = rows.map((r, i) => `<tr data-iso="${r.iso}" style="--i:${i}" tabindex="0" aria-label="${esc(r.name)}, edit or remove"><td class="name"><i class="${r.st}"></i>${esc(r.name)}${r.st === "visited" ? "" : `<span class="tbadge on">${STATUS[r.st]}</span>`}${r.official ? "" : '<span class="tbadge">Territory</span>'}</td><td class="num">${formatYearsDisplay(r.ys) || "<span class=muted>—</span>"}</td><td class="r num">${r.times ?? "<span class=muted>—</span>"}</td><td class="muted cont">${r.cont}</td></tr>`).join("");
+  tb.innerHTML = been.map(row).join("")
+    + (wish.length ? `<tr class="grp"><td colspan="4">Bucket list · ${wish.length}</td></tr>` + wish.map((r, i) => row(r, been.length + i)).join("") : "");
   if (enter && !reduce.matches) { tb.classList.remove("enter"); void tb.offsetWidth; tb.classList.add("enter"); }
-  const { count: n, territoryCount: nt } = stats(visits, placeOf);
+  const { count: n, territoryCount: nt, bucketCount: nb } = stats(visits, placeOf);
   $("#pCount").textContent = n;
   $("#total").innerHTML = `Total &nbsp;<b class="num">${n}</b> of 195 countries <span class="muted">· ${((n / 195) * 100).toFixed(1)}%</span>`
-    + (nt ? ` <span class="muted">· +${nt} ${nt === 1 ? "territory" : "territories"} visited</span>` : "");
+    + (nt ? ` <span class="muted">· +${nt} ${nt === 1 ? "territory" : "territories"} visited</span>` : "")
+    + (nb ? ` <span class="muted">· ${nb} on your bucket list</span>` : "");
   $("#empty").hidden = rows.length > 0;
   document.querySelectorAll("th[data-col]").forEach((th) => th.dataset.col === sort.col ? th.setAttribute("aria-sort", sort.dir > 0 ? "ascending" : "descending") : th.removeAttribute("aria-sort"));
 }
@@ -1105,6 +1153,26 @@ addEventListener("keydown", (e) => {
   else if (+getComputedStyle(brandTip).opacity > 0) { showBrandTip(false); brandWrap.classList.add("hush"); }
 });
 addEventListener("resize", () => { fit(); apply(home()); });
+
+/* ── heatmap on/off ──
+   A per-device display preference, like a remembered sort order — NOT part of
+   the map, so it lives in localStorage and never in the link: the same map
+   link opens as a heatmap for one person and in classic red for another, and
+   neither choice changes the data. On by default. try/catch because storage
+   can be blocked outright (private windows, some embedded browsers). */
+const HEAT_KEY = "travelmap.heat";
+let heatOn = true;
+try { heatOn = localStorage.getItem(HEAT_KEY) !== "0"; } catch {}
+function applyHeat() {
+  document.body.classList.toggle("heat-off", !heatOn);
+  $("#heatToggle").checked = heatOn;
+}
+$("#heatToggle").onchange = (e) => {
+  heatOn = e.target.checked;
+  try { localStorage.setItem(HEAT_KEY, heatOn ? "1" : "0"); } catch {}
+  applyHeat(); paint();
+};
+applyHeat();
 
 /* ── boot ── */
 $("#aboutExtraCount").textContent = $("#aboutExtraCount2").textContent = TERRITORIES.length;
