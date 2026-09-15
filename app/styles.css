@@ -102,7 +102,10 @@ button{cursor:pointer}
    The `100vw - 440px` term reserves the space the flanking buttons and the
    corner chrome need, so the bar yields as the window narrows instead of
    pushing the Save button underneath the zoom controls. */
-:root{--barW:min(640px,calc(100vw - 440px))}
+/* 760, up from 640, since the bar gained a third field (the status picker, F25).
+   Squeezing it out of the old width would have left the Year(s) field too narrow
+   to show its own placeholder. */
+:root{--barW:min(760px,calc(100vw - 440px))}
 .bar{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);width:var(--barW);
   display:flex;align-items:stretch;gap:6px;padding:6px}
 .bar.shake{animation:shake .32s ease}
@@ -111,6 +114,13 @@ button{cursor:pointer}
 .field+.field::before{content:"";position:absolute;left:-3px;top:12px;bottom:12px;width:1px;background:var(--hair)}
 .field:focus-within{background:#fff;box-shadow:0 0 0 1px var(--hair)}
 .field.combo{flex:1.35}
+/* Fixed width, unlike the two text fields: a segmented control has three fixed
+   labels and nothing to gain from stretching, and letting it flex would steal
+   room from the inputs that do. */
+.statusField{flex:0 0 auto;padding:6px 10px}
+.statusField label{margin-bottom:3px}
+.statusField .statusRow{margin:0;width:176px}
+.statusField .statusRow button{padding:4px 0;font-size:11.5px}
 .field label{font-size:11px;font-weight:600;letter-spacing:.3px;color:var(--muted)}
 .field input{border:0;outline:0;background:transparent;padding:2px 0 0;font-size:15px;width:100%}
 .field input::placeholder{color:#7D8A95}
@@ -314,7 +324,11 @@ tfoot b{font-size:16px}
    below 1280px there isn't room for all of "195 countries · 45 territories"
    AND the Clear button beside the bar. The numbers are the part that has to
    survive; the card behind the pill still spells the rest out in full. */
-@media (max-width:1279px){ .aboutWord{display:none} }
+/* 1439, raised from 1279 when the bar widened to 760px for the status picker:
+   a wider bar starts further left, and at 1280 the full-text pill ran into the
+   Clear button beside it (measured: 52px of overlap). Below 1440 the numbers
+   alone carry it; the card behind the pill still spells it out. */
+@media (max-width:1439px){ .aboutWord{display:none} }
 
 /* 641–900px: a narrow desktop window. Flanking the bar here would squeeze it to
    about 260px — two fields and a Submit button in less space than one field
@@ -323,9 +337,12 @@ tfoot b{font-size:16px}
    (it was overlapping it here before this change, the same pre-existing bug the
    counts pill had). Flanking resumes at 901px, where there is room for it. */
 @media (min-width:641px) and (max-width:900px){
-  :root{--barW:min(640px,calc(100vw - 160px))}
-  .about{bottom:84px}
-  .dockBtn{bottom:84px}
+  :root{--barW:min(760px,calc(100vw - 160px))}
+  /* 108px, raised from 84px once the bar gained the status field: the bar is now
+     71–78px tall, so its top edge sits 91–98px from the bottom and the old row
+     was landing inside it. Measured, not nudged. */
+  .about{bottom:108px}
+  .dockBtn{bottom:108px}
   #clearMap{right:auto;left:224px}
   #emailMap{left:322px}
 }
@@ -354,6 +371,12 @@ tfoot b{font-size:16px}
     max-height:calc(100vh - var(--kb,0px) - 16px);overflow-y:auto}
   .bar.up{transform:none;bottom:var(--kb,0px)}
   .field{flex:1 1 100%;background:#fff;box-shadow:0 0 0 1px var(--hair);padding:9px 14px}
+  /* On a phone the sheet is a stack of full-width rows, so the status picker
+     becomes one too — the same shape it has in the popover, which is the other
+     place a phone user meets this control. */
+  .statusField{flex:1 1 100%;padding:9px 14px}
+  .statusField .statusRow{width:100%}
+  .statusField .statusRow button{padding:8px 0;font-size:12.5px}
   .field+.field::before{display:none}
   .field input{font-size:16px} /* 16px keeps iOS from zooming the page on focus */
   .btn{flex:1 1 100%;min-height:48px}

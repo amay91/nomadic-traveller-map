@@ -42,8 +42,21 @@
     <input id="country" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="list" placeholder="Start typing a country…" spellcheck="false">
   </div>
   <div class="field">
-    <label for="years">Year(s) visited</label>
+    <label for="years" id="yearsLabel">Year(s) visited</label>
     <input id="years" inputmode="numeric" placeholder="e.g. 2019, 2023">
+  </div>
+  <!-- The same three-way control the popover has. Without it, typing a country
+       could only ever record a Visit: Lived and Home were reachable solely by
+       clicking the map, so J1 ("type to add") and J2 ("click to add") were not
+       the equivalent paths the spec presents them as. Not a text input, so the
+       brief's "two text inputs and one Submit" still holds — see spec §3 F25. -->
+  <div class="field statusField">
+    <label id="barStatusLabel">Status</label>
+    <div id="barStatus" class="statusRow" role="group" aria-labelledby="barStatusLabel">
+      <button type="button" data-s="visited" aria-pressed="true">Visited</button>
+      <button type="button" data-s="lived" aria-pressed="false">Lived</button>
+      <button type="button" data-s="home" aria-pressed="false">Home</button>
+    </div>
   </div>
   <button class="btn" type="submit">Submit</button>
   <span class="barTitle" aria-hidden="true">Add a country</span>

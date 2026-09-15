@@ -591,15 +591,36 @@ const pop = $("#pop");
 // same as clicking any other non-focusable point on the page).
 let popTrigger = null;
 let pendingStatus = "visited";
+// The status control exists in TWO places — the popover and the entry bar — and
+// they have to behave identically, or "type to add" and "click to add" stop
+// being the equivalent paths the spec claims they are. One function paints both
+// rather than two that drift: the wording and the placeholder are as much a part
+// of the control as the buttons.
+//   - "Year(s) visited" is the wrong words once it isn't a visit.
+//   - Visited stays discrete trips (a comma list); Lived/Home are genuinely
+//     continuous, so their placeholder teaches the period syntax right where it
+//     is needed, instead of only in an error message after a failed guess.
+function paintStatus(row, label, input, s) {
+  document.querySelectorAll(`${row} button`).forEach((b) => b.setAttribute("aria-pressed", b.dataset.s === s));
+  $(label).textContent = s === "lived" ? "Year(s) lived there" : s === "home" ? "Year(s) — optional" : "Year(s) visited";
+  $(input).placeholder = s === "visited" ? "e.g. 2019, 2023" : "e.g. 2011-2014, or 2023- if ongoing";
+}
 function setStatus(s) {
   pendingStatus = s;
-  document.querySelectorAll("#popStatus button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.s === s));
-  // "Year(s) visited" is the wrong words once it isn't a visit
-  $("#popYearsLabel").textContent = s === "lived" ? "Year(s) lived there" : s === "home" ? "Year(s) — optional" : "Year(s) visited";
-  // Visited stays discrete trips (a comma list); Lived/Home are genuinely
-  // continuous, so their placeholder teaches the period syntax right where
-  // it's needed, rather than only in an error message after a failed guess.
-  $("#popYears").placeholder = s === "visited" ? "e.g. 2019, 2023" : "e.g. 2011-2014, or 2023- if ongoing";
+  paintStatus("#popStatus", "#popYearsLabel", "#popYears", s);
+}
+// The entry bar's own copy of the same state, plus whether the user actually
+// CHOSE it. That second flag is a safety net, not bookkeeping: a country can be
+// resolved without ever going through choose() — typing a full name and pressing
+// Submit matches it exactly, with no dropdown selection — and on that path there
+// is nothing to preselect the picker from. Without the flag the picker would sit
+// on its "Visited" default and demote an existing Home country on submit, which
+// is precisely the silent data loss the old status-preserving code avoided. So:
+// an explicit pick wins; otherwise the record keeps the status it already had.
+let barStatus = "visited", barStatusTouched = false;
+function setBarStatus(s, byUser = false) {
+  barStatus = s; barStatusTouched = byUser;
+  paintStatus("#barStatus", "#yearsLabel", "#years", s);
 }
 function openPop(iso) {
   const c = PLACE.get(iso), rec = visits[iso], ys = yearsOf(rec);
@@ -663,6 +684,7 @@ svg.addEventListener("click", (e) => {
 });
 $("#popClose").onclick = () => select(null);
 document.querySelectorAll("#popStatus button").forEach((b) => (b.onclick = () => { setStatus(b.dataset.s); $("#popErr").textContent = ""; }));
+document.querySelectorAll("#barStatus button").forEach((b) => (b.onclick = () => { setBarStatus(b.dataset.s, true); showErr(""); }));
 $("#popForm").addEventListener("submit", (e) => {
   e.preventDefault();
   // Years are required for Visited and Lived, optional for Home — you don't
@@ -748,17 +770,29 @@ function choose(iso) {
   const c = PLACE.get(iso);
   cIn.value = c.name; chosen = iso; closeList(); showErr("");
   yIn.value = formatYearsEdit(yearsOf(visits[iso]));
+  // Preselect the status this place ALREADY has, exactly as the popover does
+  // when it opens. Without this the picker would sit on its "Visited" default
+  // and submitting would silently demote a Home or Lived country — a worse bug
+  // than the missing choice it was added to fix, since the old code at least
+  // preserved an existing status. Changing it is now a deliberate act.
+  setBarStatus(statusOf(visits[iso]));
   closePop(); select(iso, false); flyTo(iso);
   yIn.focus();
 }
-cIn.addEventListener("input", () => { chosen = null; opts = search(cIn.value, PLACES); active = opts.length ? 0 : -1; showErr(""); renderList(); });
+// Retyping the country abandons the previous one, so the status it carried must
+// go with it — otherwise picking India (Home), then clearing and typing Japan,
+// would leave "Home" selected and quietly file Japan as a home country.
+cIn.addEventListener("input", () => { chosen = null; setBarStatus("visited"); opts = search(cIn.value, PLACES); active = opts.length ? 0 : -1; showErr(""); renderList(); });
 cIn.addEventListener("keydown", (e) => {
   if (!list.classList.contains("open")) return;
   if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); if (opts.length) { active = (active + (e.key === "ArrowDown" ? 1 : -1) + opts.length) % opts.length; renderList(); } }
   else if (e.key === "Enter" && active >= 0) { e.preventDefault(); choose(opts[active].iso); }
   else if (e.key === "Escape") closeList();
 });
-cIn.addEventListener("blur", () => setTimeout(() => { closeList(); if (!chosen) { const iso = exact(cIn.value, PLACES); if (iso) chosen = iso; } }, 120));
+// Typing a full country name and clicking away resolves it here, without ever
+// going through choose() — so the picker has to be brought in line here too, or
+// it would show "Visited" for a country the app still holds as Home.
+cIn.addEventListener("blur", () => setTimeout(() => { closeList(); if (!chosen) { const iso = exact(cIn.value, PLACES); if (iso) { chosen = iso; if (!barStatusTouched) setBarStatus(statusOf(visits[iso])); } } }, 120));
 cIn.addEventListener("focus", () => { if (cIn.value && !chosen) renderList(); });
 list.addEventListener("mousedown", (e) => { e.preventDefault(); const li = e.target.closest("li[data-iso]"); if (li) choose(li.dataset.iso); });
 function showErr(msg) {
@@ -813,15 +847,17 @@ bar.addEventListener("submit", (e) => {
   const iso = chosen || exact(cIn.value, PLACES);
   if (!iso) { showErr(cIn.value.trim() ? `“${cIn.value.trim()}” isn't one of the 195 countries. Pick one from the list` : "Choose a country first"); cIn.focus(); return; }
   const raw = yIn.value.trim();
-  // The entry bar has no status picker of its own — it edits whatever status
-  // a country already has (never downgrading an existing Lived/Home), so a
-  // period is only valid here when that EXISTING status already isn't Visited.
-  const existingStatus = statusOf(visits[iso]);
-  const r = existingStatus === "home" && !raw ? { years: [] } : parseYears(raw, new Date().getFullYear(), existingStatus !== "visited");
+  // The bar now carries its own status, so it gates periods on what the user
+  // actually chose here — exactly as the popover does — rather than on whatever
+  // the record happened to hold already. That also means this path can now SET
+  // Lived/Home, and can deliberately change one back to Visited; before, it
+  // silently preserved an existing status and could never assign one.
+  const s = barStatusTouched ? barStatus : statusOf(visits[iso]);
+  const r = s === "home" && !raw ? { years: [] } : parseYears(raw, new Date().getFullYear(), s !== "visited");
   if (r.error) { showErr(r.error); yIn.focus(); return; }
   if (selected !== iso) { select(iso, false); flyTo(iso); }
-  save(iso, r.years);
-  cIn.value = ""; yIn.value = ""; chosen = null; showErr("");
+  save(iso, r.years, s);
+  cIn.value = ""; yIn.value = ""; chosen = null; showErr(""); setBarStatus("visited");
   if (phone()) closeBar(); // hand the map back the screen as soon as the work is done
   setTimeout(() => selected === iso && select(null), 900);
 });

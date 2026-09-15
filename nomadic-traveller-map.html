@@ -113,7 +113,10 @@ button{cursor:pointer}
    The `100vw - 440px` term reserves the space the flanking buttons and the
    corner chrome need, so the bar yields as the window narrows instead of
    pushing the Save button underneath the zoom controls. */
-:root{--barW:min(640px,calc(100vw - 440px))}
+/* 760, up from 640, since the bar gained a third field (the status picker, F25).
+   Squeezing it out of the old width would have left the Year(s) field too narrow
+   to show its own placeholder. */
+:root{--barW:min(760px,calc(100vw - 440px))}
 .bar{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);width:var(--barW);
   display:flex;align-items:stretch;gap:6px;padding:6px}
 .bar.shake{animation:shake .32s ease}
@@ -122,6 +125,13 @@ button{cursor:pointer}
 .field+.field::before{content:"";position:absolute;left:-3px;top:12px;bottom:12px;width:1px;background:var(--hair)}
 .field:focus-within{background:#fff;box-shadow:0 0 0 1px var(--hair)}
 .field.combo{flex:1.35}
+/* Fixed width, unlike the two text fields: a segmented control has three fixed
+   labels and nothing to gain from stretching, and letting it flex would steal
+   room from the inputs that do. */
+.statusField{flex:0 0 auto;padding:6px 10px}
+.statusField label{margin-bottom:3px}
+.statusField .statusRow{margin:0;width:176px}
+.statusField .statusRow button{padding:4px 0;font-size:11.5px}
 .field label{font-size:11px;font-weight:600;letter-spacing:.3px;color:var(--muted)}
 .field input{border:0;outline:0;background:transparent;padding:2px 0 0;font-size:15px;width:100%}
 .field input::placeholder{color:#7D8A95}
@@ -325,7 +335,11 @@ tfoot b{font-size:16px}
    below 1280px there isn't room for all of "195 countries · 45 territories"
    AND the Clear button beside the bar. The numbers are the part that has to
    survive; the card behind the pill still spells the rest out in full. */
-@media (max-width:1279px){ .aboutWord{display:none} }
+/* 1439, raised from 1279 when the bar widened to 760px for the status picker:
+   a wider bar starts further left, and at 1280 the full-text pill ran into the
+   Clear button beside it (measured: 52px of overlap). Below 1440 the numbers
+   alone carry it; the card behind the pill still spells it out. */
+@media (max-width:1439px){ .aboutWord{display:none} }
 
 /* 641–900px: a narrow desktop window. Flanking the bar here would squeeze it to
    about 260px — two fields and a Submit button in less space than one field
@@ -334,9 +348,12 @@ tfoot b{font-size:16px}
    (it was overlapping it here before this change, the same pre-existing bug the
    counts pill had). Flanking resumes at 901px, where there is room for it. */
 @media (min-width:641px) and (max-width:900px){
-  :root{--barW:min(640px,calc(100vw - 160px))}
-  .about{bottom:84px}
-  .dockBtn{bottom:84px}
+  :root{--barW:min(760px,calc(100vw - 160px))}
+  /* 108px, raised from 84px once the bar gained the status field: the bar is now
+     71–78px tall, so its top edge sits 91–98px from the bottom and the old row
+     was landing inside it. Measured, not nudged. */
+  .about{bottom:108px}
+  .dockBtn{bottom:108px}
   #clearMap{right:auto;left:224px}
   #emailMap{left:322px}
 }
@@ -365,6 +382,12 @@ tfoot b{font-size:16px}
     max-height:calc(100vh - var(--kb,0px) - 16px);overflow-y:auto}
   .bar.up{transform:none;bottom:var(--kb,0px)}
   .field{flex:1 1 100%;background:#fff;box-shadow:0 0 0 1px var(--hair);padding:9px 14px}
+  /* On a phone the sheet is a stack of full-width rows, so the status picker
+     becomes one too — the same shape it has in the popover, which is the other
+     place a phone user meets this control. */
+  .statusField{flex:1 1 100%;padding:9px 14px}
+  .statusField .statusRow{width:100%}
+  .statusField .statusRow button{padding:8px 0;font-size:12.5px}
   .field+.field::before{display:none}
   .field input{font-size:16px} /* 16px keeps iOS from zooming the page on focus */
   .btn{flex:1 1 100%;min-height:48px}
@@ -495,8 +518,21 @@ tfoot b{font-size:16px}
     <input id="country" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="list" placeholder="Start typing a country…" spellcheck="false">
   </div>
   <div class="field">
-    <label for="years">Year(s) visited</label>
+    <label for="years" id="yearsLabel">Year(s) visited</label>
     <input id="years" inputmode="numeric" placeholder="e.g. 2019, 2023">
+  </div>
+  <!-- The same three-way control the popover has. Without it, typing a country
+       could only ever record a Visit: Lived and Home were reachable solely by
+       clicking the map, so J1 ("type to add") and J2 ("click to add") were not
+       the equivalent paths the spec presents them as. Not a text input, so the
+       brief's "two text inputs and one Submit" still holds — see spec §3 F25. -->
+  <div class="field statusField">
+    <label id="barStatusLabel">Status</label>
+    <div id="barStatus" class="statusRow" role="group" aria-labelledby="barStatusLabel">
+      <button type="button" data-s="visited" aria-pressed="true">Visited</button>
+      <button type="button" data-s="lived" aria-pressed="false">Lived</button>
+      <button type="button" data-s="home" aria-pressed="false">Home</button>
+    </div>
   </div>
   <button class="btn" type="submit">Submit</button>
   <span class="barTitle" aria-hidden="true">Add a country</span>
@@ -1742,15 +1778,36 @@ const pop = $("#pop");
 // same as clicking any other non-focusable point on the page).
 let popTrigger = null;
 let pendingStatus = "visited";
+// The status control exists in TWO places — the popover and the entry bar — and
+// they have to behave identically, or "type to add" and "click to add" stop
+// being the equivalent paths the spec claims they are. One function paints both
+// rather than two that drift: the wording and the placeholder are as much a part
+// of the control as the buttons.
+//   - "Year(s) visited" is the wrong words once it isn't a visit.
+//   - Visited stays discrete trips (a comma list); Lived/Home are genuinely
+//     continuous, so their placeholder teaches the period syntax right where it
+//     is needed, instead of only in an error message after a failed guess.
+function paintStatus(row, label, input, s) {
+  document.querySelectorAll(`${row} button`).forEach((b) => b.setAttribute("aria-pressed", b.dataset.s === s));
+  $(label).textContent = s === "lived" ? "Year(s) lived there" : s === "home" ? "Year(s) — optional" : "Year(s) visited";
+  $(input).placeholder = s === "visited" ? "e.g. 2019, 2023" : "e.g. 2011-2014, or 2023- if ongoing";
+}
 function setStatus(s) {
   pendingStatus = s;
-  document.querySelectorAll("#popStatus button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.s === s));
-  // "Year(s) visited" is the wrong words once it isn't a visit
-  $("#popYearsLabel").textContent = s === "lived" ? "Year(s) lived there" : s === "home" ? "Year(s) — optional" : "Year(s) visited";
-  // Visited stays discrete trips (a comma list); Lived/Home are genuinely
-  // continuous, so their placeholder teaches the period syntax right where
-  // it's needed, rather than only in an error message after a failed guess.
-  $("#popYears").placeholder = s === "visited" ? "e.g. 2019, 2023" : "e.g. 2011-2014, or 2023- if ongoing";
+  paintStatus("#popStatus", "#popYearsLabel", "#popYears", s);
+}
+// The entry bar's own copy of the same state, plus whether the user actually
+// CHOSE it. That second flag is a safety net, not bookkeeping: a country can be
+// resolved without ever going through choose() — typing a full name and pressing
+// Submit matches it exactly, with no dropdown selection — and on that path there
+// is nothing to preselect the picker from. Without the flag the picker would sit
+// on its "Visited" default and demote an existing Home country on submit, which
+// is precisely the silent data loss the old status-preserving code avoided. So:
+// an explicit pick wins; otherwise the record keeps the status it already had.
+let barStatus = "visited", barStatusTouched = false;
+function setBarStatus(s, byUser = false) {
+  barStatus = s; barStatusTouched = byUser;
+  paintStatus("#barStatus", "#yearsLabel", "#years", s);
 }
 function openPop(iso) {
   const c = PLACE.get(iso), rec = visits[iso], ys = yearsOf(rec);
@@ -1814,6 +1871,7 @@ svg.addEventListener("click", (e) => {
 });
 $("#popClose").onclick = () => select(null);
 document.querySelectorAll("#popStatus button").forEach((b) => (b.onclick = () => { setStatus(b.dataset.s); $("#popErr").textContent = ""; }));
+document.querySelectorAll("#barStatus button").forEach((b) => (b.onclick = () => { setBarStatus(b.dataset.s, true); showErr(""); }));
 $("#popForm").addEventListener("submit", (e) => {
   e.preventDefault();
   // Years are required for Visited and Lived, optional for Home — you don't
@@ -1899,17 +1957,29 @@ function choose(iso) {
   const c = PLACE.get(iso);
   cIn.value = c.name; chosen = iso; closeList(); showErr("");
   yIn.value = formatYearsEdit(yearsOf(visits[iso]));
+  // Preselect the status this place ALREADY has, exactly as the popover does
+  // when it opens. Without this the picker would sit on its "Visited" default
+  // and submitting would silently demote a Home or Lived country — a worse bug
+  // than the missing choice it was added to fix, since the old code at least
+  // preserved an existing status. Changing it is now a deliberate act.
+  setBarStatus(statusOf(visits[iso]));
   closePop(); select(iso, false); flyTo(iso);
   yIn.focus();
 }
-cIn.addEventListener("input", () => { chosen = null; opts = search(cIn.value, PLACES); active = opts.length ? 0 : -1; showErr(""); renderList(); });
+// Retyping the country abandons the previous one, so the status it carried must
+// go with it — otherwise picking India (Home), then clearing and typing Japan,
+// would leave "Home" selected and quietly file Japan as a home country.
+cIn.addEventListener("input", () => { chosen = null; setBarStatus("visited"); opts = search(cIn.value, PLACES); active = opts.length ? 0 : -1; showErr(""); renderList(); });
 cIn.addEventListener("keydown", (e) => {
   if (!list.classList.contains("open")) return;
   if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); if (opts.length) { active = (active + (e.key === "ArrowDown" ? 1 : -1) + opts.length) % opts.length; renderList(); } }
   else if (e.key === "Enter" && active >= 0) { e.preventDefault(); choose(opts[active].iso); }
   else if (e.key === "Escape") closeList();
 });
-cIn.addEventListener("blur", () => setTimeout(() => { closeList(); if (!chosen) { const iso = exact(cIn.value, PLACES); if (iso) chosen = iso; } }, 120));
+// Typing a full country name and clicking away resolves it here, without ever
+// going through choose() — so the picker has to be brought in line here too, or
+// it would show "Visited" for a country the app still holds as Home.
+cIn.addEventListener("blur", () => setTimeout(() => { closeList(); if (!chosen) { const iso = exact(cIn.value, PLACES); if (iso) { chosen = iso; if (!barStatusTouched) setBarStatus(statusOf(visits[iso])); } } }, 120));
 cIn.addEventListener("focus", () => { if (cIn.value && !chosen) renderList(); });
 list.addEventListener("mousedown", (e) => { e.preventDefault(); const li = e.target.closest("li[data-iso]"); if (li) choose(li.dataset.iso); });
 function showErr(msg) {
@@ -1964,15 +2034,17 @@ bar.addEventListener("submit", (e) => {
   const iso = chosen || exact(cIn.value, PLACES);
   if (!iso) { showErr(cIn.value.trim() ? `“${cIn.value.trim()}” isn't one of the 195 countries. Pick one from the list` : "Choose a country first"); cIn.focus(); return; }
   const raw = yIn.value.trim();
-  // The entry bar has no status picker of its own — it edits whatever status
-  // a country already has (never downgrading an existing Lived/Home), so a
-  // period is only valid here when that EXISTING status already isn't Visited.
-  const existingStatus = statusOf(visits[iso]);
-  const r = existingStatus === "home" && !raw ? { years: [] } : parseYears(raw, new Date().getFullYear(), existingStatus !== "visited");
+  // The bar now carries its own status, so it gates periods on what the user
+  // actually chose here — exactly as the popover does — rather than on whatever
+  // the record happened to hold already. That also means this path can now SET
+  // Lived/Home, and can deliberately change one back to Visited; before, it
+  // silently preserved an existing status and could never assign one.
+  const s = barStatusTouched ? barStatus : statusOf(visits[iso]);
+  const r = s === "home" && !raw ? { years: [] } : parseYears(raw, new Date().getFullYear(), s !== "visited");
   if (r.error) { showErr(r.error); yIn.focus(); return; }
   if (selected !== iso) { select(iso, false); flyTo(iso); }
-  save(iso, r.years);
-  cIn.value = ""; yIn.value = ""; chosen = null; showErr("");
+  save(iso, r.years, s);
+  cIn.value = ""; yIn.value = ""; chosen = null; showErr(""); setBarStatus("visited");
   if (phone()) closeBar(); // hand the map back the screen as soon as the work is done
   setTimeout(() => selected === iso && select(null), 900);
 });
