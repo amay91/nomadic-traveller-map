@@ -19,7 +19,7 @@ const load = (f) => {
 };
 const { COUNTRIES, TERRITORIES, CONTINENTS } = load("countries.js");
 const { Logic } = load("logic.js");
-const { search, exact, parseYears, highlight, esc, stats, encodeMap, decodeMap, validateImport, yearsOf, statusOf, STATUS, latestYear, formatYearsEdit, formatYearsDisplay } = Logic;
+const { search, exact, parseYears, highlight, esc, stats, encodeMap, decodeMap, validateImport, yearsOf, statusOf, STATUS, latestYear, formatYearsEdit, formatYearsDisplay, mergeYears } = Logic;
 
 const PLACES = [
   ...COUNTRIES.map((c) => ({ iso: c[0], name: c[2], cont: c[3], aliases: c.slice(4), official: true })),
@@ -106,6 +106,23 @@ test("formatYearsDisplay: an en dash and 'present' for an ongoing period, reader
   assert.equal(formatYearsDisplay([{ from: 2011, to: 2014 }]), "2011–2014");
   assert.equal(formatYearsDisplay([{ from: 2023, to: null }]), "2023–present");
   assert.equal(formatYearsDisplay([2015, { from: 2011, to: 2014 }, { from: 2023, to: null }]), "2015, 2011–2014, 2023–present");
+});
+
+test("mergeYears: adds a new year without disturbing what's already there (owner report 2026-09-15)", () => {
+  assert.deepEqual(j(mergeYears([2019], [2023])), [2019, 2023], "a genuinely new year is appended");
+  assert.deepEqual(j(mergeYears([2019, 2023], [2021])), [2019, 2021, 2023], "appended and re-sorted, not just tacked on the end");
+  assert.deepEqual(j(mergeYears([], [2019, 2023])), [2019, 2023], "nothing existing yet: incoming years pass straight through");
+});
+test("mergeYears: an incoming year that's already on file is dropped, not duplicated", () => {
+  assert.deepEqual(j(mergeYears([2019], [2019])), [2019], "resubmitting the same single year is a no-op");
+  assert.deepEqual(j(mergeYears([2019], [2019, 2019])), [2019], "even a deliberately-doubled resubmission doesn't duplicate an existing entry");
+  assert.deepEqual(j(mergeYears([2018], [2018, 2019])), [2018, 2019], "the new year in a mixed resubmission still gets added");
+});
+test("mergeYears: periods merge and dedupe by deep equality, not by reference", () => {
+  assert.deepEqual(j(mergeYears([{ from: 2011, to: 2014 }], [{ from: 2011, to: 2014 }])), [{ from: 2011, to: 2014 }], "an identical period, freshly parsed (a different object), is still recognised as a duplicate");
+  assert.deepEqual(j(mergeYears([{ from: 2011, to: 2014 }], [{ from: 2023, to: null }])), [{ from: 2011, to: 2014 }, { from: 2023, to: null }], "a genuinely different period is appended");
+  assert.deepEqual(j(mergeYears([{ from: 2023, to: null }], [{ from: 2023, to: 2024 }])), [{ from: 2023, to: 2024 }, { from: 2023, to: null }], "same start, different end: NOT a duplicate (ongoing always sorts last, per yearKey)");
+  assert.deepEqual(j(mergeYears([2019], [{ from: 2011, to: 2014 }])), [{ from: 2011, to: 2014 }, 2019], "a plain year and a period never collide as duplicates of each other");
 });
 
 test("latestYear: the largest sortable year, ongoing periods always winning", () => {

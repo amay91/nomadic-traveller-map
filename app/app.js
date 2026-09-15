@@ -4,7 +4,7 @@
 // rule logic.js already owns. Classic script (plan.md L1), so this and
 // logic.js/countries.js/geo.js all share the same global scope by design.
 const { search, exact, parseYears, esc, highlight, STATUS, yearsOf, statusOf, stats,
-        encodeMap, decodeMap, validateImport, latestYear, formatYearsEdit, formatYearsDisplay } = Logic;
+        encodeMap, decodeMap, validateImport, latestYear, formatYearsEdit, formatYearsDisplay, mergeYears } = Logic;
 
 const $ = (s) => document.querySelector(s);
 const svg = $("#map");
@@ -368,8 +368,20 @@ function updateLabels(scale) {
     // 0.9/0.95 blend to 6.8:1 / 6.0:1 — comfortably legible, still short of
     // full-strength "loud."
     el.style.opacity = shown * (el.classList.contains("is-visited") ? 0.95 : 0.9);
-    // Name vs. code, two rules in priority order:
+    // Name vs. code, three rules in priority order:
     //
+    // 0. ON A PHONE, ALWAYS THE CODE — full stop, at any zoom. Reported
+    //    2026-09-15: on mobile the Caribbean (and any other tight cluster of
+    //    small places) turned unreadable once names started appearing, because
+    //    the fit check below only asks "does THIS name fit THIS place's own
+    //    border" — it has no idea a neighbour's name is about to land 4px away.
+    //    That collision is invisible on a spacious desktop viewport and
+    //    guaranteed on a 390px-wide one packed with dozens of small islands.
+    //    A real fix is per-label collision avoidance (not attempted); the honest
+    //    fix available today is to never let mobile reach the state that
+    //    exposes the gap — codes are compact enough that neighbours very rarely
+    //    collide even in a tight archipelago. Desktop/tablet keep the fit-check
+    //    behaviour below, which has room to spare.
     // 1. ZOOMED OUT, EVERYTHING IS A CODE. Below NAME_FROM every place shows its
     //    three-letter code regardless of whether its name would have fitted.
     //    This is the later of the two requests and it overrides the fit check:
@@ -383,12 +395,11 @@ function updateLabels(scale) {
     //    waves as you zoom: the roomiest countries first, the tightest last or
     //    never. A dot marker has no real outline to spill out of, so rule 2
     //    never applies to it; rule 1 still does, so a dot is a code when zoomed
-    //    out and its full name once you're in — the same two states as everything
-    //    else, which is the point.
+    //    out and its full name once you're in (desktop/tablet only, per rule 0).
     //
     // Only writes textContent when the decision actually FLIPS, not every
     // throttle tick — a text write forces the browser to re-lay-out that <text>.
-    const wantsCode = zoom < NAME_FROM || (!isDot && nameW * NAME_UNITS > bboxW * FIT_MARGIN);
+    const wantsCode = phone() || zoom < NAME_FROM || (!isDot && nameW * NAME_UNITS > bboxW * FIT_MARGIN);
     if (wantsCode !== entry.showingCode) {
       el.textContent = wantsCode ? el.dataset.code : name;
       entry.showingCode = wantsCode;
@@ -852,11 +863,23 @@ bar.addEventListener("submit", (e) => {
   // the record happened to hold already. That also means this path can now SET
   // Lived/Home, and can deliberately change one back to Visited; before, it
   // silently preserved an existing status and could never assign one.
-  const s = barStatusTouched ? barStatus : statusOf(visits[iso]);
+  const rec = visits[iso], existingStatus = statusOf(rec);
+  const s = barStatusTouched ? barStatus : existingStatus;
   const r = s === "home" && !raw ? { years: [] } : parseYears(raw, new Date().getFullYear(), s !== "visited");
   if (r.error) { showErr(r.error); yIn.focus(); return; }
+  // ADD to what's already recorded rather than replace it (owner report,
+  // 2026-09-15): typing a country a second time to fill in a year forgotten the
+  // first time used to silently wipe the years already on file — Submit here
+  // behaved exactly like the popover's, replacing the whole list, but with no
+  // full-list view to make that obvious first. Merging is the entry bar's own
+  // behaviour (`mergeYears`, logic.js); the popover still replaces outright,
+  // since it always shows the complete list before you touch it.
+  // Only merges when the status ISN'T also changing — a deliberate status
+  // change replaces the years outright, same as before, so a Visited/Lived
+  // switch can't leave old- and new-shaped entries mixed in one record.
+  const years = rec && s === existingStatus ? mergeYears(yearsOf(rec), r.years) : r.years;
   if (selected !== iso) { select(iso, false); flyTo(iso); }
-  save(iso, r.years, s);
+  save(iso, years, s);
   cIn.value = ""; yIn.value = ""; chosen = null; showErr(""); setBarStatus("visited");
   if (phone()) closeBar(); // hand the map back the screen as soon as the work is done
   setTimeout(() => selected === iso && select(null), 900);

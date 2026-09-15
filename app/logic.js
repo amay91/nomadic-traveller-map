@@ -111,6 +111,35 @@ const formatYearsEdit = (y) => y.map((e) => typeof e === "number" ? e : `${e.fro
 // like a single, already-ended year, and silently go stale every January)
 // both read as typos or errors to someone who isn't the one who typed it.
 const formatYearsDisplay = (y) => y.map((e) => typeof e === "number" ? e : `${e.from}–${e.to ?? "present"}`).join(", ");
+// Two entries are "the same visit" if they're the identical plain year, or the
+// identical period — used only by mergeYears below, never by parseYears, so a
+// SINGLE submission that repeats a year on purpose ("2019, 2019", one entry per
+// visit — F3, a real feature with its own test) is completely unaffected.
+const yearEq = (a, b) =>
+  typeof a === "number" && typeof b === "number" ? a === b
+  : typeof a === "object" && a && typeof b === "object" && b ? a.from === b.from && a.to === b.to
+  : false;
+// Added 2026-09-15 (owner report: typing a country a second time to add a year
+// you forgot the first time silently WIPED the years already on file, because
+// the entry bar's Submit — like the popover's — replaced the whole list).
+// mergeYears folds newly-typed years INTO whatever a place already holds,
+// rather than replacing it, and drops any incoming entry that's an EXACT repeat
+// of one already on file — "if I type a year that's already there, don't add
+// it again." Only the entry bar uses this (app.js): the popover keeps replacing
+// outright, because it always shows the complete existing list before you touch
+// it (spec F4/J3 — the actual edit-and-remove surface), so anything you submit
+// there is already a deliberate, fully-visible edit, not a forgotten append.
+//
+// Only ever called when the record's STATUS is staying the same. A status
+// change (Visited -> Lived, say) replaces the years outright instead — merging
+// old-status entries into a new one could leave, say, a Visited record holding
+// a period, which nothing else here expects ("Visited never mixes in a
+// period," spec §5.3) and would silently corrupt the "# times visited" count.
+function mergeYears(existing, incoming) {
+  const merged = existing.slice();
+  for (const e of incoming) if (!merged.some((m) => yearEq(m, e))) merged.push(e);
+  return merged.sort((a, b) => yearKey(a) - yearKey(b));
+}
 
 // ── text helpers ────────────────────────────────────────────────────────
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
@@ -251,7 +280,7 @@ function validateImport(obj, isKnown) {
 window.Logic = {
   normalize, wordNormalize, search, exact, parseYears, esc, highlight,
   STATUS, yearsOf, statusOf, stats, encodeMap, decodeMap, validateImport,
-  latestYear, formatYearsEdit, formatYearsDisplay,
+  latestYear, formatYearsEdit, formatYearsDisplay, mergeYears,
 };
 
 })();
