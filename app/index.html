@@ -36,6 +36,25 @@
   </button>
 </header>
 
+<!-- Map key (prototype 2026-09-15). The heatmap is a classed map — five fixed
+     shades — and a classed map can only be read with its key in view, so this
+     sits on the map itself. The toggle keeps the original single-red look one
+     tap away; the choice is a per-device preference, not part of the map link. -->
+<div id="legend" class="legend glass" role="group" aria-label="Map key">
+  <div class="lgRow">
+    <span class="lgTitle">Visits</span>
+    <ol class="lgRamp" aria-label="Shade by number of visits">
+      <li class="h1">1</li><li class="h2">2</li><li class="h3">3</li><li class="h4">4–5</li>
+      <li class="h5" title="6 or more visits — and anywhere you've lived or call home">6+</li>
+    </ol>
+    <span class="lgFlat"><i class="lgSw"></i>Visited</span>
+  </div>
+  <div class="lgRow">
+    <span class="lgBucket"><i class="lgSw"></i>Bucket list</span>
+    <label class="lgToggle"><input type="checkbox" id="heatToggle" checked>Heatmap</label>
+  </div>
+</div>
+
 <form id="entry" class="bar glass" autocomplete="off" novalidate>
   <div class="field combo">
     <label for="country">Country</label>
@@ -56,6 +75,7 @@
       <button type="button" data-s="visited" aria-pressed="true">Visited</button>
       <button type="button" data-s="lived" aria-pressed="false">Lived</button>
       <button type="button" data-s="home" aria-pressed="false">Home</button>
+      <button type="button" data-s="bucket" aria-pressed="false">Bucket list</button>
     </div>
   </div>
   <button class="btn" type="submit">Submit</button>
@@ -94,10 +114,11 @@
   <h2 id="popName"></h2>
   <p id="popMeta" class="muted"></p>
   <form id="popForm" novalidate autocomplete="off">
-    <div id="popStatus" class="statusRow" role="group" aria-label="How you know this place">
+    <div id="popStatus" class="statusRow" role="group" aria-label="Status">
       <button type="button" data-s="visited" aria-pressed="true">Visited</button>
       <button type="button" data-s="lived" aria-pressed="false">Lived</button>
       <button type="button" data-s="home" aria-pressed="false">Home</button>
+      <button type="button" data-s="bucket" aria-pressed="false">Bucket list</button>
     </div>
     <label id="popYearsLabel" for="popYears">Year(s) visited</label>
     <input id="popYears" inputmode="numeric" placeholder="e.g. 2019, 2023">
