@@ -4,7 +4,7 @@ A personal map of every country you've been to, and when.
 
 Click a country (or type its name) to record the years you were there and whether you **visited**, **lived** there, or call it **home**. The map fills in, the count ticks up, and a side panel keeps the whole list sortable. 195 countries plus 45 territories, the territories tracked separately so they never inflate the official count.
 
-**Live:** https://&lt;your-username&gt;.github.io/nomadic-traveller-map/
+**Live: [amay91.github.io/nomadic-traveller-map](https://amay91.github.io/nomadic-traveller-map/)**
 
 ---
 

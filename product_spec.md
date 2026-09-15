@@ -4,7 +4,7 @@
 **Date:** 2026-09-14
 **Author / Product Owner:** Amay Narayan
 **Version:** **1.0.0 — signed off by the owner 2026-09-14.** Phases 0–2 are all complete and verified: the 9-round design study, the build (B1–B11), and the full polish/verify pass (V1 accessibility, V2/V2a/V2b mobile, V3 size + performance, V4 six rounds of real-use inspection producing nine findings — year periods for Lived/Home (F21), map labels and their three refinement rounds (F22), a mobile dropdown-rendering bug, a broken save-by-link on the single-file build (§4.5), and a stale cache-first service worker that had been silently serving a frozen app). Full detail in `tasks.md`.
-**Status:** **Done and in active use.** `app/` is the real, running app. 26/26 automated tests pass. Size: 63.1 KB of an 80 KB code-excluding-comments budget (§4.1). The only remaining work is **Phase 3, go-live on GitHub Pages** (`plan.md` §6, `tasks.md` D0–D6) — deployment, not development; D0's privacy scrub is done and D1 onward are the owner's to run.
+**Status:** **Done and in active use.** `app/` is the real, running app. 26/26 automated tests pass. Size: 63.1 KB of an 80 KB code-excluding-comments budget (§4.1). **Live at https://amay91.github.io/nomadic-traveller-map/ since 2026-09-15** (`plan.md` §6, `tasks.md` Phase 3). Phase 3 is complete apart from D5, an optional custom domain.
 **Not claimed at 1.0, stated rather than buried:** performance is verified against Chrome's 4× CPU-throttle proxy, **not a physical phone** (§4.1), and B11's claim that an installed PWA is exempt from iOS's 7-day storage eviction has never been verified. Neither blocked sign-off; neither should be read as measured.
 
 > **Document hierarchy**

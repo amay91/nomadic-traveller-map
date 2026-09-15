@@ -26,12 +26,12 @@ Generated from [`plan.md`](./plan.md) §5. **This file is the source of truth fo
 | | V3 Size + performance audit | ✅ **2026-09-14** — 61.4 KB of 80 KB code-excluding-comments as of V4 round 6 (re-measured; was 54.4 KB when this row was last edited — size is re-checked after every round, see `tools/measure-size.mjs`); `geo.js` 297.5 KB raw / 86.4 KB gzip, both within budget; zero dropped frames and zero long tasks across pinch/pan/save/hover under 4× CPU throttle (headless-proxy caveat noted, spec §4.1) |
 | | V4 User inspection round → **v1.0** | ✅ **signed off 2026-09-14** — 6 rounds, 9 findings (4 + 1 + 1 + 1 + 1 + 1), all fixed at the root; round 4 = the stale service-worker cache that had been silently hiding every change. **v1.0 tagged in `handoff.md`.** |
 | 3 Go-live | D0 Privacy scrub (required before any of D1+ is safe) | ✅ **2026-09-14** |
-| | D1 Initialize git + create the GitHub repo | ⏸ |
-| | D2 GitHub Actions workflow to publish `app/` | ⏸ |
-| | D3 Enable GitHub Pages (repo settings) | ⏸ |
-| | D4 Verify the live deployment | ⏸ |
-| | D5 Custom domain *(optional)* | ⏸ |
-| | D6 Point "Email me this map" / the single-file build at the new canonical URL | ⏸ |
+| | D1 Initialize git + create the GitHub repo | ✅ **2026-09-15** |
+| | D2 GitHub Actions workflow to publish `app/` | ✅ **2026-09-15** |
+| | D3 Enable GitHub Pages (repo settings) | ✅ **2026-09-15** (owner) |
+| | D4 Verify the live deployment | ✅ **2026-09-15** — every item green on the real URL |
+| | D5 Custom domain *(optional)* | ⏸ *optional; the github.io URL is a complete answer* |
+| | D6 Point "Email me this map" / the single-file build at the new canonical URL | ✅ **2026-09-15** |
 
 Legend: ✅ done · 🔄 in progress / in review · ⏸ not started
 
@@ -410,6 +410,17 @@ Everything below is against the **real, public URL** — not `localhost`, not `f
 - **⚠ Deploy an UPDATE and confirm a returning visitor actually receives it.** This is the check that would have caught V4 round 4's stale-service-worker bug, and hosting makes it everyone's problem rather than just the developer's: with the old cache-first worker, every returning visitor would have kept whatever version they first loaded, permanently, after every deploy. The worker is network-first now, so a returning visitor gets fresh files while still working offline — but verify it on the real site rather than trusting it: load the site, deploy a visible change, reload **in the same browser profile** (not a fresh/incognito one, which cannot reproduce this), and confirm the change appears. A fresh-context check proves nothing here, by construction.
 **Accept:** every bullet above confirmed on the real deployed URL, with the same rigor (screenshots/explicit checks, not "looks fine") this project has used throughout.
 
+**✅ DONE 2026-09-15 — live at https://amay91.github.io/nomadic-traveller-map/**
+
+- **The first deploy failed, and the cause is worth knowing:** the `test` job passed (26 tests green on Ubuntu, confirming the workflow's own command works in CI) but `deploy` failed at `actions/configure-pages@v5`, and all URLs 404'd. **Publishing a repo does not enable Pages** — that is a separate setting, and `configure-pages` is the step that reads it. Setting Source → GitHub Actions and re-running the job fixed it. Worth recording that the API's `has_pages` flag read `true` the whole time and was therefore useless as a signal; the 404s were the reliable one. Also: **run logs cannot be downloaded without authentication even on a public repo** (403), so diagnosing from outside meant reasoning from *which step* failed plus what the live URL served, rather than reading the error.
+- **Loads clean:** 233 shapes + 69 dots + 240 labels, zero console errors, zero failed requests, `https:`, service worker registered with scope `/nomadic-traveller-map/`, manifest resolving, and both new map-level buttons present.
+- **Case sensitivity, closed with a control rather than a pass:** all 12 assets return 200 at exact case (including everything under `icons/`), **and deliberately wrong-case requests — `Icons/icon-192.png`, `App.js` — return 404**, which proves the server really is case-sensitive rather than merely permissive. A row of 200s alone would not have shown that.
+- **F17 on a real address:** the mailto takes its real-link branch and the body carries an actual `https://amay91.github.io/...` link. The saved URL then restored the exact map in a **fresh, unauthenticated context**.
+- **F20 holds live:** after one visit, an offline reload in the same profile still renders the complete map (233 shapes, 69 dots, 240 labels) with the app's real name and the new buttons.
+- **⚠ The returning-visitor check, which is why round 4 mattered — PASSED against the live site.** Simulated rather than pushed: a route registered on the browser context sits *below* the service worker, so the worker's own `fetch()` received rewritten bytes exactly as it would receive newly-deployed ones. The page rendered them. **This is the one check localhost could not fully make**, because GitHub serves `Cache-Control: max-age=600` — the exact header that would let a bare `fetch()` inside the worker serve up to ten minutes of stale content. With `{cache:"no-cache"}` (D0a) it revalidates instead. A returning visitor gets new deploys.
+- **Mobile unregressed on the real URL** at 360/390/430: no overlap between any pair of bottom controls, no horizontal overflow, pinch-zoom works and opens no popover (V2a), the country dropdown renders fully inside the viewport (V4 round 1), zero console errors.
+- **Not verified, and stated rather than implied:** the install prompt ("Add to Home Screen") is a browser-UI affordance that headless Chromium does not surface, so the *installability inputs* were checked (manifest valid and reachable, all four icons 200, service worker active and correctly scoped, served over HTTPS) but the prompt itself was not observed. The iOS eviction exemption remains unverified, as it has been since B11.
+
 ### D5 · Custom domain *(optional)*
 Only if wanted — the `github.io` URL is a complete, working answer on its own. If a custom domain is preferred: add a `CNAME` file to `app/` containing just the domain (e.g. `map.yourname.com`), add a `CNAME` DNS record at the domain registrar pointing at `<username>.github.io`, then Settings → Pages → Custom domain → enter it → wait for DNS to propagate → **check "Enforce HTTPS"** once GitHub shows the certificate as issued (this can take a few minutes to a few hours).
 **Accept, if done:** the custom domain loads the app over HTTPS with a valid certificate; the plain `github.io` URL still works too (GitHub keeps both live by default) or is deliberately redirected, whichever is preferred.
@@ -419,3 +430,6 @@ Nothing code-side needs to change (F17 already uses `location.href`, which will 
 - Update `handoff.md`'s "where things stand" with the live URL once D3 is done, so a future session doesn't have to rediscover it.
 - Decide what becomes of `nomadic-traveller-map.html` / `tools/build-single.mjs` now that a real hosted URL exists — `plan.md` §6 recommends keeping it as an offline/no-install fallback rather than retiring it, since it still solves a real problem (using the app with zero setup, no network) the hosted version doesn't.
 **Accept:** `handoff.md` names the live URL; a decision on the single-file build's ongoing role is recorded (keep as fallback, or retire it — either is fine, just say which).
+
+**✅ DONE 2026-09-15.** `handoff.md` now opens with the live URL and the repo; `README.md`'s placeholder link was replaced with the real one (it was about to greet every visitor to a public repo with `<your-username>`).
+**Decision on `nomadic-traveller-map.html`: KEEP it, as the offline/no-setup fallback.** Nothing code-side needed changing — F17 reads `location.href`, which is now genuinely a real address — but the single file still solves a problem hosting doesn't: using the app with zero network and zero setup, from a copied file. It also remains the fastest way to hand someone the whole app. It stays in the repo and `tools/build-single.mjs` stays with it; re-run that after any change to `app/`, exactly as before.
