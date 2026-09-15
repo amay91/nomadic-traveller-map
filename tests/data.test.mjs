@@ -70,3 +70,62 @@ test("GEO.c has no keys outside the 195 + territories", () => {
   const known = new Set([...COUNTRIES.map((c) => c[0]), ...TERRITORIES.map((t) => t[0])]);
   assert.deepEqual(Object.keys(GEO.c).filter((k) => !known.has(k)), []);
 });
+
+// Added 2026-09-15 (owner: "make sure country names are actually on the
+// country in question — Croatia looks off"). GEO.a[iso][0,1] is the LABEL
+// point (build-geo.mjs's anchor(), via polylabel — see its own comment for
+// why a plain geographic centroid isn't safe for a non-convex shape). The
+// only check that would have caught the original bug is a real point-in-
+// polygon test against the SHIPPED path — a shape existing (the test above)
+// says nothing about where its label point actually falls inside it.
+//
+// Minimal SVG-path parser for build-geo.mjs's own compact relative-path
+// format (M absolute start, then implicit relative lineto pairs, z closes a
+// ring) — intentionally not a general SVG parser, just enough for the
+// straight-line paths this pipeline ever emits.
+function ringsOf(d) {
+  const toks = d.match(/[Mlz]|-?\.?\d+\.?\d*/g) || [];
+  const rings = []; let ring = [], cx = 0, cy = 0, mode = null, started = false, i = 0;
+  while (i < toks.length) {
+    const t = toks[i];
+    if (t === "M") { if (started) rings.push(ring); ring = []; mode = "M"; i++; continue; }
+    if (t === "l") { mode = "l"; i++; continue; }
+    if (t === "z") { rings.push(ring); ring = []; started = false; mode = null; i++; continue; }
+    const x = +toks[i], y = +toks[i + 1]; i += 2;
+    if (mode === "M") { cx = x; cy = y; ring.push([cx, cy]); started = true; mode = "l"; }
+    else { cx += x; cy += y; ring.push([cx, cy]); }
+  }
+  if (ring.length) rings.push(ring);
+  return rings;
+}
+function insideAnyRing(pt, rings) {
+  return rings.some((ring) => {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i], [xj, yj] = ring[j];
+      if (yi > pt[1] !== yj > pt[1] && pt[0] < ((xj - xi) * (pt[1] - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  });
+}
+test("every place with a real shape has its label anchor INSIDE that shape, not just somewhere on the map", () => {
+  const all = [...COUNTRIES, ...TERRITORIES];
+  const dots = new Set(GEO.d);
+  const failures = [];
+  for (const [iso] of all) {
+    // A dot place (app.js renders it as a <circle>, not its GEO.c path — see
+    // renderMap()) can still have a NON-EMPTY GEO.c entry: a country this
+    // small often simplifies to a 2-3-point sliver with essentially zero
+    // real area, which build-geo.mjs still writes a path string for even
+    // though the app never draws it. "Inside the polygon" isn't a meaningful
+    // question for a shape with no real interior — the anchor there is a
+    // POINT location for the dot/label, not a label placed within a border,
+    // exactly how app.js's own isDot branch already treats it.
+    if (dots.has(iso)) continue;
+    const path = GEO.c[iso];
+    if (!path) continue; // no path at all — nothing to check either
+    const [cx, cy] = GEO.a[iso];
+    if (!insideAnyRing([cx, cy], ringsOf(path))) failures.push(iso);
+  }
+  assert.deepEqual(failures, [], `label anchor lands OUTSIDE its own shape for: ${failures.join(", ")}`);
+});

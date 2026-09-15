@@ -162,6 +162,33 @@ function paint(stagger) {
 // only ever approaches its limit asymptotically instead of landing on it.
 let base, view, tween, tweenTo = null;
 const stopTween = () => { cancelAnimationFrame(tween); tweenTo = null; };
+// The zoom CEILING — the narrowest the map can ever be shown at — pinned to a
+// target ON-SCREEN SCALE (px per map unit), not a flat fraction of base.w.
+// The old rule (`base.w / 12`) gave every screen the SAME absolute map-unit
+// width at max zoom, which sounds fair and isn't: base.w itself is ~1040
+// units on nearly every real viewport, phone included (fit()'s own
+// `w < GEO.w*1.04` floor catches both a 1440px desktop window and a 390px
+// phone — measured, not assumed). Dividing that into a 1440px screen gives
+// 16.6 px per map unit; dividing it into a 390px screen gives 4.5 — a phone
+// user's "fully zoomed in" was rendering everything, paths and labels both,
+// at barely a quarter of desktop's density. That's the whole "we need more
+// zoom" report. CEIL_SCALE is desktop's own long-standing ceiling density,
+// measured directly (16.615), and now the target EVERY screen reaches — a
+// narrower screen asks for a narrower SLICE of the map, not a blurrier one.
+// Desktop is unchanged by construction: innerWidth/(innerWidth/CEIL_SCALE)
+// is CEIL_SCALE at any width, so this is a no-op at 1440 and roughly a
+// 3.5–4x deeper ceiling on a phone.
+//
+// One function, not a constant recomputed three or four ways — apply(),
+// zoomTarget(), flyTo() and the label-sizing block below all have to agree
+// on this EXACTLY, the same discipline the code already required of
+// apply()/zoomTarget() ("matching apply()'s own clamp exactly… otherwise the
+// anchor math drifts," found once already near Svalbard) — now extended to
+// every OTHER place that used to hardcode its own copy of `base.w/12`, so a
+// future change to CEIL_SCALE propagates everywhere instead of needing to be
+// hunted down by hand.
+const CEIL_SCALE = 16.615;
+const zoomMin = () => innerWidth / CEIL_SCALE;
 function fit() {
   const W = innerWidth, H = innerHeight, mobile = W <= 640;
   let h = GEO.h * (mobile ? 1.05 : 1.2), w = (h * W) / H;
@@ -289,9 +316,16 @@ function sizeToScreen() {
 // device-independent, and on a standard notch it lands exactly on the requested
 // half-pixel per step (7px spread over 14 notches — measured at 0.50–0.51).
 //
-// LBL_SPAN mirrors the 12x zoom range apply() clamps to (base.w … base.w/12).
-// If that clamp ever changes, this has to change with it or the ramp stops
-// reaching LBL_MAX_PX at the ceiling.
+// LBL_SPAN mirrors the 12x zoom range apply() clamps to on DESKTOP (base.w …
+// zoomMin()) — desktop's own resting frame IS base.w, so 12 is exact there.
+// On a phone the resting frame is narrower than base.w to begin with, and
+// (since CEIL_SCALE, above) both it and the ceiling scale together with
+// innerWidth, so every real phone width lands on the SAME ratio — measured at
+// 360/390/430px: 9.6x, not 12x. Left at 12 anyway: labelPx()'s Math.min(1, …)
+// clamp means slightly undershooting the span just means the ramp approaches
+// LBL_MAX_PX without quite reaching it (16.3px, not 17), which is the
+// intended, accepted outcome documented in labelPx() itself, not a bug to
+// chase with a second platform-specific constant.
 const LBL_MIN_PX = 10, LBL_MAX_PX = 17, LBL_SPAN = 12;
 // Zoom ratio (from the resting frame) at which full names START being offered.
 // Below it EVERY place shows its three-letter code, whether or not its name
@@ -324,20 +358,25 @@ function restWidth() {
   return restW;
 }
 // How far in we are from the frame the app rests at: 1 at rest, LBL_SPAN at the
-// ceiling on desktop, ~2.6 at a phone's (it opens already part-way in).
+// ceiling on desktop, ~9.6 at a phone's (it opens already part-way in, and
+// CEIL_SCALE — above — keeps that ratio the same on any real phone width).
 const zoomFromRest = (scale) => restWidth() / (innerWidth / scale);
 function labelPx(scale) {
   // Growth is measured against a FIXED span rather than each platform's own
   // available zoom, so a step of zoom is worth the same half-pixel everywhere.
-  // A phone has only ~2.6x of zoom left above its resting frame (desktop has the
-  // full 12x), so it tops out around 12.7px and never reaches LBL_MAX_PX — which
-  // is the correct outcome, not a shortfall: at its ceiling a phone is showing
-  // the same slice of the world as desktop-at-ceiling in a third of the pixels,
-  // so every country there is ~3.7x smaller on screen. Normalising over each
-  // platform's own range instead (the first attempt at this) drove phone labels
-  // to the full 17px over a map that small and buried Europe in overlapping
-  // text — the same platform-scaling trap the dot-reveal threshold fell into in
-  // V4 round 3, wearing a different hat.
+  // Since CEIL_SCALE gives a phone the SAME on-screen density at its ceiling as
+  // desktop gets at its own, a phone's ~9.6x of zoom above its resting frame
+  // gets it to ~16.3px — close to LBL_MAX_PX, deliberately not forced to hit it
+  // exactly (see LBL_SPAN's own comment). Before CEIL_SCALE existed, a phone's
+  // ceiling was the same ABSOLUTE map-unit width as desktop's despite a much
+  // narrower screen, so it only had ~2.6x of zoom above rest and topped out
+  // around 12.7px; that gap is what CEIL_SCALE actually closes, not something
+  // this function has to keep compensating for. Normalising over each
+  // platform's own range instead of a fixed span (the first attempt at label
+  // sizing, before CEIL_SCALE) drove phone labels to the full 17px over a map
+  // that was still small, burying Europe in overlapping text — the same
+  // platform-scaling trap the dot-reveal threshold fell into in V4 round 3,
+  // wearing a different hat.
   //
   // Clamped at the bottom because a phone can pinch OUT past its resting frame
   // to the whole world, which would otherwise push the size under the 10px the
@@ -348,7 +387,11 @@ function labelPx(scale) {
 function updateLabels(scale) {
   const REVEAL_PX = 12, FADE_PX = 14;
   const fpx = labelPx(scale), zoom = zoomFromRest(scale);
-  const maxScale = innerWidth / (base.w / 12); // scale at the app's own zoom ceiling
+  // Always CEIL_SCALE by construction now (maxScale = innerWidth/zoomMin() =
+  // innerWidth/(innerWidth/CEIL_SCALE) = CEIL_SCALE), on every platform — kept
+  // as an expression rather than hardcoding the constant so DOT_REVEAL/DOT_FADE
+  // below stay correct automatically if CEIL_SCALE is ever tuned again.
+  const maxScale = innerWidth / zoomMin();
   // DOT_REVEAL/DOT_FADE are fractions of maxScale, not an absolute scale —
   // maxScale is proportional to innerWidth (scale = innerWidth/view.w, and
   // the zoom clamp is a fixed RATIO of base.w regardless of screen size), so
@@ -424,7 +467,7 @@ function updateLabels(scale) {
   }
 }
 function apply(v) {
-  const max = base.w, min = base.w / 12;
+  const max = base.w, min = zoomMin();
   const w = Math.min(max, Math.max(min, v.w)), h = (w * base.h) / base.w;
   const cx = Math.min(GEO.w, Math.max(0, v.x + v.w / 2)), cy = Math.min(GEO.h, Math.max(0, v.y + v.h / 2));
   view = { x: cx - w / 2, y: cy - h / 2, w, h };
@@ -434,7 +477,7 @@ function apply(v) {
   const hm = home();
   $("#reset").classList.toggle("show", Math.abs(view.w - hm.w) > hm.w * 0.03 || Math.abs(view.x - hm.x) > hm.w * 0.05);
   // dead controls at the ends of the range are worse than absent ones
-  $("#zoomIn").disabled = view.w <= base.w / 12 + 1e-9;
+  $("#zoomIn").disabled = view.w <= min + 1e-9;
   $("#zoomOut").disabled = view.w >= base.w - 1e-9;
 }
 // The clamped target view for a zoom of factor f anchored at screen point px,py.
@@ -448,7 +491,7 @@ function zoomTarget(px, py, f, v = view) {
   // that's supposed to stay under the cursor silently drifts further every
   // tick (found scrolling in on Svalbard, near the map's very top edge, well
   // past the zoom cap: the view kept sliding south tick after tick).
-  const w = Math.min(base.w, Math.max(base.w / 12, v.w / f)), h = (w * base.h) / base.w;
+  const w = Math.min(base.w, Math.max(zoomMin(), v.w / f)), h = (w * base.h) / base.w;
   return { x: mx - (px / innerWidth) * w, y: my - (py / innerHeight) * h, w, h };
 }
 function zoomAt(px, py, f) { apply(zoomTarget(px, py, f)); }
@@ -473,7 +516,19 @@ function flyTo(iso) {
   const [, , x0, y0, x1, y1] = GEO.a[iso];
   const aspect = base.w / base.h;
   let w = Math.max((x1 - x0) * 2.4 + 16, ((y1 - y0) * 2.4 + 16) * aspect);
-  w = Math.min(base.w, Math.max(base.w / 6, w));
+  // The floor (`2 * zoomMin()`, i.e. HALF the hard zoom ceiling's density — was
+  // `base.w / 6`, exactly 2× the old `base.w / 12` ceiling, same relationship,
+  // now screen-width-proportional like the ceiling itself) stops flyTo from
+  // zooming in absurdly far for a tiny country — but on the OLD flat-map-unit
+  // floor (173 units on every screen), it was the DOMINANT term for most small
+  // and medium countries, not just an edge-case safety net: Croatia's own
+  // padded bbox width is ~51 units, so `Math.max(51, 173)` always picked 173,
+  // meaning clicking Croatia never actually framed Croatia — it framed however
+  // much of the Balkans happened to fit in a 173-unit-wide box, every time, on
+  // every screen. Measured, not assumed. Proportional to screen width now, so
+  // it only binds for genuinely tiny places (Vatican, Monaco), the case it was
+  // actually meant for.
+  w = Math.min(base.w, Math.max(2 * zoomMin(), w));
   const h = w / aspect;
   animateTo({ x: (x0 + x1) / 2 - w / 2, y: (y0 + y1) / 2 - h * 0.46, w, h });
 }

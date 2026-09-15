@@ -8,6 +8,7 @@ import vm from "node:vm";
 import * as topojson from "topojson-client";
 import { presimplify, simplify, quantile, sphericalTriangleArea } from "topojson-simplify";
 import { geoEqualEarth, geoPath, geoCentroid, geoArea } from "d3-geo";
+import polylabel from "polylabel";
 
 const W = 1000;                        // viewBox width; height derived from the fit
 const KEEP = Number(process.env.KEEP ?? 0.5); // fraction of vertices kept by simplification
@@ -141,25 +142,28 @@ const [[, y0], [, y1]] = geoPath(projection).bounds(all);
 projection.translate([projection.translate()[0], projection.translate()[1] - y0 + 4]);
 const H = Math.ceil(y1 - y0 + 8);
 
-// ── Compact relative path serializer (integer tenths → no float drift) ──
-const fmt = (n) => { const s = (n / 10).toFixed(n % 10 ? 1 : 0); return s.replace(/^(-?)0\./, "$1."); };
-function pathOf(feature) {
-  let out = "", cx = 0, cy = 0, sx = 0, sy = 0, ring = [];
+// ── Rendered rings, shared by the path serializer AND the label anchor ──
+// Rounds to integer tenths (0.1-unit precision — the same precision the
+// compact path format itself stores) and drops any ring that collapses to
+// fewer than 3 distinct points after rounding, EXACTLY matching what the
+// serialized path below actually draws. anchor() (further down) reuses this
+// rather than computing its label point against the pre-rounding geometry —
+// found necessary, not theoretical: for the smallest real territories
+// (Monaco, Bermuda, Saint Martin, the Marshall Islands, Macau — all under
+// ~0.2 map units across), running polylabel on the UNROUNDED coordinates
+// occasionally placed the label point a few hundredths of a unit inside the
+// TRUE shape but just outside the shape once IT got rounded to the same
+// precision the rendered path uses — the anchor and the outline it's
+// supposed to sit inside were each individually correct against a slightly
+// different version of the same country. One shared source of rounded rings
+// makes that impossible by construction: whatever anchor() centres a label
+// in is the identical set of points pathOf() is about to draw.
+function renderedRings(feature) {
+  const rings = []; let ring = [];
   const flush = () => {
-    // drop rings that collapse to < 3 distinct points after rounding
     const pts = ring.filter((p, i) => i === 0 || p[0] !== ring[i - 1][0] || p[1] !== ring[i - 1][1]);
     ring = [];
-    if (pts.length < 3) return;
-    out += `M${fmt(pts[0][0])} ${fmt(pts[0][1])}`;
-    cx = pts[0][0]; cy = pts[0][1];
-    let body = "";
-    for (let i = 1; i < pts.length; i++) {
-      const dx = pts[i][0] - cx, dy = pts[i][1] - cy;
-      cx = pts[i][0]; cy = pts[i][1];
-      const a = fmt(dx), b = fmt(dy);
-      body += (body && !a.startsWith("-") ? " " : "") + a + (b.startsWith("-") ? "" : " ") + b;
-    }
-    out += "l" + body + "z";
+    if (pts.length >= 3) rings.push(pts.map(([x, y]) => [x / 10, y / 10]));
   };
   const ctx2 = {
     moveTo(x, y) { if (ring.length) flush(); ring.push([Math.round(x * 10), Math.round(y * 10)]); },
@@ -169,13 +173,54 @@ function pathOf(feature) {
   };
   geoPath(projection, ctx2)(feature);
   if (ring.length) flush();
+  return rings;
+}
+// ── Compact relative path serializer (integer tenths → no float drift) ──
+const fmt = (n) => { const s = (n / 10).toFixed(n % 10 ? 1 : 0); return s.replace(/^(-?)0\./, "$1."); };
+function pathOf(feature) {
+  let out = "";
+  for (const pts of renderedRings(feature)) {
+    out += `M${fmt(pts[0][0] * 10)} ${fmt(pts[0][1] * 10)}`;
+    let cx = pts[0][0] * 10, cy = pts[0][1] * 10, body = "";
+    for (let i = 1; i < pts.length; i++) {
+      const px = pts[i][0] * 10, py = pts[i][1] * 10, dx = px - cx, dy = py - cy;
+      cx = px; cy = py;
+      const a = fmt(dx), b = fmt(dy);
+      body += (body && !a.startsWith("-") ? " " : "") + a + (b.startsWith("-") ? "" : " ") + b;
+    }
+    out += "l" + body + "z";
+  }
   return out;
 }
 
-// Anchor per country: [cx, cy, x0, y0, x1, y1]. The centre is the centroid of the
-// LARGEST polygon (a whole-feature centroid puts Kiribati/Norway/Fiji in open sea);
-// the box is the union of polygons ≥10% of the largest, so fly-to frames the
-// mainland US + Alaska rather than half the Pacific for Hawaii.
+// Anchor per country: [cx, cy, x0, y0, x1, y1]. cx,cy is the LABEL POINT — the
+// pole of inaccessibility (the point inside the shape farthest from any edge)
+// of the LARGEST polygon, computed on the shape as actually PROJECTED and
+// rendered, via polylabel — Mapbox's own tool, built for exactly this: label
+// placement on non-convex map shapes. x0,y0,x1,y1 is the bounding box of the
+// union of polygons ≥10% of the largest, so fly-to frames the mainland US +
+// Alaska rather than half the Pacific for Hawaii.
+//
+// This REPLACED a geographic centroid (d3's geoCentroid, computed on the
+// sphere, then projected) — added 2026-09-15, owner: "make sure country
+// names are actually on the country in question. Croatia looks off." A
+// centroid is the shape's CENTRE OF MASS, which for a genuinely non-convex
+// country — Croatia's coastline is a long crescent wrapped around three
+// sides of Bosnia — can land right at the edge of a thin part, or outside
+// the polygon altogether. Measured, not assumed: Croatia's old centroid sat
+// just 0.36 map units from the nearest boundary vertex, in the narrow Istria
+// neck at the shape's northern tip — technically still inside the polygon,
+// but nowhere near where a reader's eye would call "the middle of Croatia,"
+// and a real label (several units wide once rendered) spilled straight over
+// the Slovenian border. polylabel instead finds the point that MAXIMISES
+// distance to the boundary, which is both guaranteed inside the shape and
+// visually the natural centre a reader would point to — the same reasoning
+// this file already used once for the ANCHOR BOX ("a whole-feature centroid
+// puts Kiribati/Norway/Fiji in open sea"), now applied to the point itself,
+// not just which polygon it's allowed to be computed from. Every place's
+// anchor moved slightly by this change, not just Croatia's — any other
+// non-convex shape (Chile's ribbon, Vietnam's own coastal curve, Norway's
+// fjords) had exactly the same latent risk, just not yet reported.
 const areaPath = geoPath(projection);
 const r1 = (v) => Math.round(v * 10) / 10;
 function anchor(feature) {
@@ -185,7 +230,32 @@ function anchor(feature) {
   const max = Math.max(...areas);
   const main = polys.filter((_, i) => areas[i] >= max * 0.1);
   const [[x0, y0], [x1, y1]] = areaPath.bounds({ type: "FeatureCollection", features: main });
-  return [...projection(geoCentroid(polys[areas.indexOf(max)])), x0, y0, x1, y1].map(r1);
+  // Every ring of the LARGEST polygon (the exterior plus any holes, e.g. South
+  // Africa's own hole for Lesotho) — via renderedRings(), the SAME rounding
+  // pathOf() applies, not a fresh projection of the raw coordinates. That
+  // reuse is load-bearing, found by a test failure, not by inspection: the
+  // first version of this projected the raw geometry directly, and for the
+  // very smallest real territories (Monaco, Bermuda, Saint Martin, the
+  // Marshall Islands, Macau — all under ~0.2 map units across), polylabel's
+  // point could sit correctly inside the UNROUNDED shape and still land just
+  // outside the shape once its own boundary got rounded to the same 0.1-unit
+  // precision the rendered path stores. The anchor and the outline it's
+  // supposed to sit inside were each individually correct against a subtly
+  // different version of the same country. Sharing renderedRings() makes that
+  // impossible by construction: whatever polylabel centres a label in is the
+  // identical set of points pathOf() is about to draw — a real, systemic
+  // point-in-polygon test across all 240 places (tests/data.test.mjs) is what
+  // caught this, not eyeballing Croatia alone.
+  const largestRings = renderedRings(polys[areas.indexOf(max)]);
+  // A place small enough that its ENTIRE feature renders no path at all (every
+  // ring collapses under the same 0.1-unit rounding renderedRings applies) is
+  // a dot-fallback place regardless of what anchor() returns (place(), below,
+  // checks pathOf(feature) itself) — there is no polygon left for "farthest
+  // from the boundary" to mean anything, so polylabel has nothing to work
+  // with. A plain projected centroid is exactly correct there: a dot's anchor
+  // IS its on-screen point, not a label position relative to a shape.
+  const [cx, cy] = largestRings.length ? polylabel(largestRings, 0.1) : projection(geoCentroid(polys[areas.indexOf(max)]));
+  return [cx, cy, x0, y0, x1, y1].map(r1);
 }
 
 // One shared placement pass for the sovereign 195 AND the clickable extras —
