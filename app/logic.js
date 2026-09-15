@@ -219,7 +219,7 @@ function decodeMap(str, isKnown) {
 // than trusting the file was produced by this app's own Export.
 function validateImport(obj, isKnown) {
   if (!obj || typeof obj !== "object" || obj.v !== 1 || !obj.visits || typeof obj.visits !== "object") {
-    return { error: "That doesn't look like a Nomad Travel Map backup file." };
+    return { error: "That doesn't look like a Nomadic Traveller Map backup file." };
   }
   const max = new Date().getFullYear();
   const valid = (n) => Number.isInteger(n) && n >= 1900 && n <= max;

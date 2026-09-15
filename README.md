@@ -1,4 +1,4 @@
-# Nomad Travel Map
+# Nomadic Traveller Map
 
 A personal map of every country you've been to, and when.
 
@@ -45,7 +45,7 @@ node --test tests/*.test.mjs
 
 ## The single-file build
 
-`nomad-travel-map.html` is the entire app — markup, styles, scripts, geometry and icons — inlined into one ~400 KB file with zero external references. Copy it anywhere and open it; it works with no network and no setup. It exists because opening a multi-file app from a phone's Downloads folder doesn't work: Android hands the browser a `content://` URI with no directory, so every relative path resolves to nothing.
+`nomadic-traveller-map.html` is the entire app — markup, styles, scripts, geometry and icons — inlined into one ~400 KB file with zero external references. Copy it anywhere and open it; it works with no network and no setup. It exists because opening a multi-file app from a phone's Downloads folder doesn't work: Android hands the browser a `content://` URI with no directory, so every relative path resolves to nothing.
 
 Regenerate it with `node tools/build-single.mjs`.
 

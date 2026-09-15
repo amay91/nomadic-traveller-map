@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Nomad Travel Map</title>
+<title>Nomadic Traveller Map</title>
 <meta name="theme-color" content="#7C99B4">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Nomad Map">
 <style>
-/* Nomad Travel Map — tokens (Atlas, locked 2026-09-13, plan.md §0/spec §6.2)
+/* Nomadic Traveller Map — tokens (Atlas, locked 2026-09-13, plan.md §0/spec §6.2)
    + layout + motion. Borders are dark warm "chart ink," not white — clearer
    against both water and land than any translucent-white value tested
    (4.0:1 / 8.8:1 vs 3–3.7 / 6–8 for the alternatives). */
@@ -358,7 +358,7 @@ tfoot b{font-size:16px}
 <svg id="map" role="img" aria-label="World map. Visited countries are highlighted."></svg>
 
 <header class="top">
-  <div class="brand glass"><span class="mark"></span><div><b>Nomad Travel Map</b><small>Countries you've been to</small></div></div>
+  <div class="brand glass"><span class="mark"></span><div><b>Nomadic Traveller Map</b><small>Countries you've been to</small></div></div>
   <button id="countBtn" class="pill glass" aria-label="Open the list of visited countries">
     <span class="num"><b id="count">0</b> / 195</span>
     <svg viewBox="0 0 16 16" fill="none"><path d="M2.5 4h11M2.5 8h11M2.5 12h7"/></svg>
@@ -962,7 +962,7 @@ function decodeMap(str, isKnown) {
 // than trusting the file was produced by this app's own Export.
 function validateImport(obj, isKnown) {
   if (!obj || typeof obj !== "object" || obj.v !== 1 || !obj.visits || typeof obj.visits !== "object") {
-    return { error: "That doesn't look like a Nomad Travel Map backup file." };
+    return { error: "That doesn't look like a Nomadic Traveller Map backup file." };
   }
   const max = new Date().getFullYear();
   const valid = (n) => Number.isInteger(n) && n >= 1900 && n <= max;
@@ -1934,7 +1934,7 @@ $("#emailMap").onclick = () => {
   if (!Object.keys(visits).length) return toast("Add a country first — there's nothing to save yet", null);
   syncUrl();
   const n = stats(visits, placeOf).count;
-  const subject = "My Nomad Travel Map";
+  const subject = "My Nomadic Traveller Map";
   const linkWorks = location.protocol === "http:" || location.protocol === "https:";
   let body;
   if (linkWorks) {
@@ -1944,7 +1944,7 @@ $("#emailMap").onclick = () => {
     body = `My travel map — ${n} of 195 countries so far.\n\n` +
       `This copy of the app is running from a downloaded file, not a real web address, so it can't create a link you can click to reopen it — a backup file (${name}) was just saved to your Downloads instead.\n\n` +
       `Before sending: attach that file to this email.\n\n` +
-      `To restore it later: open Nomad Travel Map, tap the menu (≡) at the top right, then Import, and choose the attached file.`;
+      `To restore it later: open Nomadic Traveller Map, tap the menu (≡) at the top right, then Import, and choose the attached file.`;
   }
   location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   Store.markKept(visits); updateSavedState();

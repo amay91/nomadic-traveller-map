@@ -1,4 +1,4 @@
-# Product Specification: Nomad Travel Map
+# Product Specification: Nomadic Traveller Map
 ### A personal map of every country you've been to, and when
 
 **Date:** 2026-09-14
@@ -141,7 +141,7 @@ The obvious reading of that is a server: mint a token, store the map against it,
 
 **Hosting note:** the app still needs no server-side code, but for an emailed link to open on another device it should sit on **static hosting**. Prefer **Cloudflare Pages or Netlify over GitHub Pages** — all three are free and serve static files identically, but the first two can also run serverless functions on the same domain if §4.6 is ever triggered. Static file hosting is not a backend: no database, no runtime, nothing to patch.
 
-**A real gap this design had until 2026-09-14, found by actual use, not theorized:** "Email me this map" embeds `location.href` in the message — sound reasoning on http(s), where the address bar holds a real, stable, shareable link, exactly as designed above. **It silently breaks on a downloaded file**, and not as a rare edge case: opening a downloaded `.html` file from Android's Downloads app (the ordinary way to use the single-file build, `nomad-travel-map.html`) hands the browser a `content://` URI — no folder, no guaranteed long-term validity, meaningless to anyone it's emailed to, including the same user days later. The app now checks `location.protocol`, and on anything other than `http:`/`https:` it falls back to the mechanism that's always been protocol-independent — **Export**, triggered automatically, with the mailto draft asking the user to attach the file that just downloaded and explaining how to restore it via Import. **This is the honest reminder of why §4.5's hosting note exists**: the URL-as-storage design is real and works exactly as specified once the app is actually served over http(s); a downloaded single file is a deliberate convenience for getting onto a phone at all (§4.5's own gotcha, `handoff.md`), not a substitute for hosting it.
+**A real gap this design had until 2026-09-14, found by actual use, not theorized:** "Email me this map" embeds `location.href` in the message — sound reasoning on http(s), where the address bar holds a real, stable, shareable link, exactly as designed above. **It silently breaks on a downloaded file**, and not as a rare edge case: opening a downloaded `.html` file from Android's Downloads app (the ordinary way to use the single-file build, `nomadic-traveller-map.html`) hands the browser a `content://` URI — no folder, no guaranteed long-term validity, meaningless to anyone it's emailed to, including the same user days later. The app now checks `location.protocol`, and on anything other than `http:`/`https:` it falls back to the mechanism that's always been protocol-independent — **Export**, triggered automatically, with the mailto draft asking the user to attach the file that just downloaded and explaining how to restore it via Import. **This is the honest reminder of why §4.5's hosting note exists**: the URL-as-storage design is real and works exactly as specified once the app is actually served over http(s); a downloaded single file is a deliberate convenience for getting onto a phone at all (§4.5's own gotcha, `handoff.md`), not a substitute for hosting it.
 
 ### 4.6 Other people using it (the L13 deferral, 2026-09-13)
 The owner intends to open this up to others eventually, and asked whether the architecture should change now. **It shouldn't** — and the reason is measurable rather than a matter of taste.
@@ -313,7 +313,7 @@ Neutrals shared by all five: ink `#2B3640`, muted `#55636E`, surface `#FFFFFF` a
 | Q1 | Track territories as optional extras outside the 195? | **Yes** — 45 of them, by the rule in §5.2; F12/F15 |
 | Q2 | Keep UN M49 continents (Russia = Europe, Turkey/Cyprus/Caucasus = Asia)? | **Confirmed, yes** |
 | Q3 | Which palette? | **C · Atlas**, with darker chart-ink borders (§6.2) |
-| Q4 | Product name? | **Nomad Travel Map** — repo/files stay `TravelMap` (Pāntha's own precedent: display wordmark vs. ASCII project name) |
+| Q4 | Product name? | **Nomadic Traveller Map** — repo/files stay `TravelMap` (Pāntha's own precedent: display wordmark vs. ASCII project name) |
 | Q5 | Pre-fill from known trips? | **Yes** — real countries, methodology in §5.4 |
 | Q6 | Should the user's home country (India) be tracked? | **Yes** (2026-09-13) — as `Home`, no years, §5.4/F16 |
 | Q7 | Does a single day-trip (Germany 2017) count as "visited"? | **No** (2026-09-13) — removed from the data, §5.4 |

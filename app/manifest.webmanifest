@@ -1,6 +1,6 @@
 {
-  "name": "Nomad Travel Map",
-  "short_name": "Nomad Map",
+  "name": "Nomadic Traveller Map",
+  "short_name": "Nomadic Map",
   "description": "A personal map of every country you've been to, and when.",
   "start_url": "./index.html",
   "scope": "./",

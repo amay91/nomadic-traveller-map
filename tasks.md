@@ -69,7 +69,7 @@ The choice was made by rendering all four side by side at world, Europe, Caribbe
 `docs/design-studies/01-map/index.html`, built on the real geometry and the real 195 + 45. Round 1 covered every surface and motion in spec §6; round 2 widened the palette from 3 options to 5 (`NOTES.md`). **Round 3 (2026-09-13), on the user's direct feedback:**
 - **Atlas locked as the default palette**, with a darker "chart-ink" border (`--border-line`, per-palette token) replacing translucent white — chosen by testing several dark warm tones for contrast against both Atlas's water and land, not by eye alone (§6.2).
 - **Territories (T2a) wired into every surface**: clickable on the map (identical interaction to a country), tagged "Territory" in the dropdown/popover/table, a separate "+N territories visited" table line, and a new bottom-right "195 countries · 45 territories" card (click to expand) stating the official-vs-shown distinction the user asked for.
-- **The wordmark is now "Nomad Travel Map"** (project files/folder stay `TravelMap`, matching Pāntha's own display-name-vs-repo-name precedent).
+- **The wordmark is now "Nomadic Traveller Map"** (project files/folder stay `TravelMap`, matching Pāntha's own display-name-vs-repo-name precedent).
 - **Sample data replaced with the user's real trips** (12 countries; methodology and two flagged judgment calls in spec §5.4), with the "illustrative" caption changed to reflect that.
 
 **Round 4 (same day), on the user's follow-up feedback:** India confirmed trackable (the year question was then dissolved by round 5 below) and the Germany day-trip removed, both per the same-day methodology in spec §5.4 — sample data is now 11 countries. The user asked what the Svalbard gap actually was; re-checking to answer properly found it wasn't a real gap (T2a, above) — fixed rather than left open. That work also surfaced a genuine, unrelated bug: zooming in past the map's cap near the top edge (where Svalbard sits) made the view drift steadily away from the cursor instead of staying put, because the zoom-toward-cursor offset was computed from the pre-clamp size while the clamp itself used a different, post-clamp size. Fixed in `zoomAt` (plan.md §3); re-verified with a tick-by-tick log showing the drift is gone.
@@ -295,34 +295,37 @@ GitHub Pages' free tier requires the source repo to be public. A scan of the doc
 - **The history was rewritten, not amended.** The data had already been committed locally (two commits). Since nothing had been pushed, the branch was rebuilt as a single clean orphan commit and the old objects expired and pruned — verified: `git log --all -S` finds the fixture in no commit, and `git fsck --unreachable` reports nothing dangling. A follow-up "scrub" commit would have left the original permanently readable in the public history, which is the whole failure mode.
 - **The lesson, which is the same one as V4 round 4 in a different costume: a scan is only as good as the file types you thought to include.** "Grepped every `.md` and `.html`" sounded exhaustive and silently excluded the entire test suite. Before any future publication step, enumerate what will actually be published (`git ls-tree -r HEAD`) and scan *that list*, rather than a set of extensions chosen from memory.
 
-### D1 · Initialize git + create the GitHub repository
-```bash
-cd D:\Claude\TravelMap
-git init
-git branch -M main
-```
-Add a `.gitignore` first (this repo has never had one):
-```
-tools/node_modules/
-```
-(`tools/node_modules` exists from `npm install`ing `build-geo.mjs`'s topojson/d3 dependencies — a dev-only tool dependency, not app code, and large enough not to want in history. Add `.claude/` too if you'd rather this tool's own local config not be public — it's harmless either way, purely a preference.)
+### D0a · Product rename + a second stale-cache layer ✅ *(2026-09-15)*
+**Renamed to "Nomadic Traveller Map"** (owner, 2026-09-15) across the app's visible surfaces (`<title>`, wordmark, manifest `name`/`short_name`, the "email me this map" subject and restore instructions, the import-file error message), the single-file build (`nomad-travel-map.html` → `nomadic-traveller-map.html`, plus `tools/build-single.mjs`), the service-worker cache name, `README.md`, and all four docs. **`docs/design-studies/01-map/` was deliberately left alone** — it's a frozen historical record of what was decided in September 2026, and rewriting the name inside it would falsify that record rather than update it.
+- **Checked the thing a rename actually risks:** "Nomadic Traveller Map" is five characters longer than "Nomad Travel Map", and the brand pill is fixed-position chrome sitting opposite the count pill. Measured at every supported width — no wrap, no document overflow, and **13 px of clearance at 360 px**, the tightest case. Confirmed against a real render, not just the numbers.
 
-Create the GitHub repo (pick one):
-```bash
-# via gh CLI, if installed — creates the repo and adds it as `origin` in one step
-gh repo create TravelMap --public --source=. --remote=origin
-```
-or via the GitHub website (New repository → name it, e.g. `TravelMap` or `nomad-travel-map` → **do not** initialize with a README/`.gitignore`/license, since this repo already has all three's worth of content → then locally:
-```bash
-git remote add origin https://github.com/<your-username>/<repo-name>.git
-```
+**A real bug found by the rename, and it is the V4-round-4 failure one layer down.** After the rename the running app still showed the OLD name — title, wordmark, *and* a plain `fetch()` of the manifest — while the file on disk had the new one. The service worker was already network-first, so by the round-4 reasoning this should have been impossible.
+- **Root cause:** a bare `fetch(e.request)` inside a service worker **still goes through the browser's own HTTP cache**. "Network-first" means "ask the network layer first", not "ask the server first". `python -m http.server` sends `Last-Modified` and no `Cache-Control`, which licenses *heuristic caching*: the browser may reuse a response for a fraction of its age without contacting the server at all. So the worker dutifully asked the network, and the network handed back a stale copy.
+- **Diagnosed by comparison, not inference:** in the same tab, a normal `fetch()` returned the old name while a `cache: "reload"` fetch returned the new one — proving the current bytes were reachable and something in front of the server was choosing not to fetch them.
+- **Fixed** with `fetch(e.request, { cache: "no-cache" })` — forces a conditional revalidation instead of a blind cache read; an unchanged file still answers 304, so the cost is a round-trip of headers.
+- **Severity, stated honestly:** far milder than the v1 disaster. This staleness is time-bounded and self-heals (GitHub Pages sends `max-age=600`, so ~10 minutes at worst), where v1's was permanent. But it made the worker's own stated guarantee false, and it is exactly the kind of thing that would have produced another "I don't see the change" report.
+- **Accept, verified in a PERSISTENT browser profile** — the only environment that can reproduce this class of bug, per round 4's own lesson: visit 1 installs the worker and populates the cache; a file is then changed on disk; **visit 2 in the same profile sees the change**; an offline reload afterwards still renders 233 shapes and 240 labels with zero errors, so F20 is intact. 26/26 tests; size 61.5 KB of 80.
 
-First commit and push:
+### D1 · Initialize git + create the GitHub repository — **local half ✅ done 2026-09-14**
+**Repo name: `nomadic-traveller-map`** (owner's choice, 2026-09-15). The local folder and every internal path stays `TravelMap`; the product's display name is **Nomadic Traveller Map**.
+
+**Already done locally:** `git init`, `main` branch, `.gitignore` (`tools/node_modules/` — 8.4 MB of dev-only topojson/d3; and `.claude/`, because `launch.json` hardcodes an absolute `C:\Users\<name>\` path that has no business in a public repo), `README.md`, the D2 workflow, and commits. **The privacy re-scan that found D0's gap happened here** — see D0 above.
+
+**Publishing with GitHub Desktop** (the owner's tool as of 2026-09-15 — `gh` is not installed):
+1. **File → Add local repository** → `D:\Claude\TravelMap`. It detects the existing repo and history; do **not** use "Create a new repository", which would try to re-initialize.
+2. Click **Publish repository**.
+3. In the dialog: set **Name** to `nomadic-traveller-map` — it pre-fills with the *folder* name (`TravelMap`), which is not what we want — and **untick "Keep this code private"**. It is ticked by default, and GitHub Pages' free tier will not serve a private repo.
+4. Publish. Desktop creates the GitHub repo, wires up `origin`, and pushes in one step; authentication is handled by the app, so no token or credential prompt.
+
+Desktop is doing exactly what `git remote add origin … && git push -u origin main` would do — nothing about the repo is Desktop-specific afterwards, and the CLI keeps working on the same folder.
+
+**Equivalent without Desktop:** create the repo at github.com/new (Public; **do not** add a README/`.gitignore`/license — this repo already has that content, and an auto-created file would collide with the push), then:
 ```bash
-git add .
-git commit -m "Initial commit — Nomad Travel Map, ready for GitHub Pages"
+git remote add origin https://github.com/<your-username>/nomadic-traveller-map.git
 git push -u origin main
 ```
+
+**Worth doing before the first push, not after:** commits are authored with whatever `git config user.email` holds, and that address becomes permanently public in the history. GitHub's **Settings → Emails → Keep my email address private** issues a `@users.noreply.github.com` address to use instead.
 **Accept:** the repo exists on GitHub, public, with this project's full history as one commit (or however many you prefer); `git remote -v` shows `origin` pointing at it; nothing in `.gitignore` (`tools/node_modules/`) made it into the push.
 
 ### D2 · GitHub Actions workflow to publish `app/`
@@ -392,5 +395,5 @@ Only if wanted — the `github.io` URL is a complete, working answer on its own.
 ### D6 · Point "Email me this map" and the single-file build at the new canonical URL
 Nothing code-side needs to change (F17 already uses `location.href`, which will correctly be the new real address once hosted there) — this task is about the **docs and the user's own habits**, not the app:
 - Update `handoff.md`'s "where things stand" with the live URL once D3 is done, so a future session doesn't have to rediscover it.
-- Decide what becomes of `nomad-travel-map.html` / `tools/build-single.mjs` now that a real hosted URL exists — `plan.md` §6 recommends keeping it as an offline/no-install fallback rather than retiring it, since it still solves a real problem (using the app with zero setup, no network) the hosted version doesn't.
+- Decide what becomes of `nomadic-traveller-map.html` / `tools/build-single.mjs` now that a real hosted URL exists — `plan.md` §6 recommends keeping it as an offline/no-install fallback rather than retiring it, since it still solves a real problem (using the app with zero setup, no network) the hosted version doesn't.
 **Accept:** `handoff.md` names the live URL; a decision on the single-file build's ongoing role is recorded (keep as fallback, or retire it — either is fine, just say which).

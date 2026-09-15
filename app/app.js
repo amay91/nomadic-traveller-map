@@ -931,7 +931,7 @@ $("#emailMap").onclick = () => {
   if (!Object.keys(visits).length) return toast("Add a country first — there's nothing to save yet", null);
   syncUrl();
   const n = stats(visits, placeOf).count;
-  const subject = "My Nomad Travel Map";
+  const subject = "My Nomadic Traveller Map";
   const linkWorks = location.protocol === "http:" || location.protocol === "https:";
   let body;
   if (linkWorks) {
@@ -941,7 +941,7 @@ $("#emailMap").onclick = () => {
     body = `My travel map — ${n} of 195 countries so far.\n\n` +
       `This copy of the app is running from a downloaded file, not a real web address, so it can't create a link you can click to reopen it — a backup file (${name}) was just saved to your Downloads instead.\n\n` +
       `Before sending: attach that file to this email.\n\n` +
-      `To restore it later: open Nomad Travel Map, tap the menu (≡) at the top right, then Import, and choose the attached file.`;
+      `To restore it later: open Nomadic Traveller Map, tap the menu (≡) at the top right, then Import, and choose the attached file.`;
   }
   location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   Store.markKept(visits); updateSavedState();

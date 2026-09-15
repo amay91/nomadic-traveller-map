@@ -1,4 +1,4 @@
-// Build one self-contained HTML file: nomad-travel-map.html
+// Build one self-contained HTML file: nomadic-traveller-map.html
 //
 // Why this exists (2026-09-14): opening app/index.html on a phone showed the
 // raw, unstyled HTML with no map — every one of its five sibling files failed to
@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const APP = join(dirname(fileURLToPath(import.meta.url)), "..", "app");
-const OUT = join(APP, "..", "nomad-travel-map.html");
+const OUT = join(APP, "..", "nomadic-traveller-map.html");
 const read = (f) => readFile(join(APP, f), "utf8");
 
 // `</script` anywhere inside an inlined script would close the tag early. None of
@@ -61,4 +61,4 @@ if (/src="|href="(?!#|mailto:|https?:)/.test(out.replace(/href="#[^"]*"/g, "")))
 }
 
 await writeFile(OUT, out, "utf8");
-console.log(`nomad-travel-map.html — ${(Buffer.byteLength(out) / 1024).toFixed(0)} KB, one file, zero external references`);
+console.log(`nomadic-traveller-map.html — ${(Buffer.byteLength(out) / 1024).toFixed(0)} KB, one file, zero external references`);

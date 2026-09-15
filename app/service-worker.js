@@ -1,10 +1,15 @@
 // Minimal offline cache for the app shell — no framework, no Workbox, just
 // the two events a static single-page app actually needs.
 //
-// CACHE is bumped whenever the precached files change. v1 → v2 on 2026-09-14
-// because v1 had gone stale in the worst possible way — see the fetch handler
-// below for what actually went wrong and why the strategy changed with it.
-const CACHE = "nomad-travel-map-v2";
+// CACHE was `nomad-travel-map-v1` → `-v2` on 2026-09-14, because v1 had gone
+// stale in the worst possible way — see the fetch handler below for what went
+// wrong and why the strategy changed with it. Renamed again with the product
+// (Nomad Travel Map → Nomadic Traveller Map), which resets the suffix to v1;
+// that costs nothing, since `activate` deletes every cache whose name isn't the
+// current one, so the old `nomad-travel-map-*` entries are dropped on first run
+// rather than lingering. The name only has to be UNIQUE per deployment, not
+// monotonically increasing.
+const CACHE = "nomadic-traveller-map-v1";
 const SHELL = [
   "./", "./index.html", "./manifest.webmanifest",
   "./countries.js", "./geo.js", "./logic.js", "./app.js", "./styles.css",
@@ -46,10 +51,24 @@ self.addEventListener("activate", (e) => {
 //
 // Only successful same-origin responses are cached, so a 404 or an error page
 // can never poison the cache the way a stale 200 just did.
+//
+// `cache: "no-cache"` is load-bearing, not decoration. A bare `fetch(e.request)`
+// still goes through the BROWSER'S OWN HTTP cache, so "network-first" is only as
+// fresh as that cache — and a server that sends `Last-Modified` with no
+// `Cache-Control` (Python's `http.server`, which is what this project develops
+// against) invites heuristic caching, where the browser reuses a response for a
+// fraction of its age without asking the server at all. Caught renaming the app
+// on 2026-09-15: the page, the manifest and a plain `fetch()` all still returned
+// the OLD product name while the server on disk had the new one, and a
+// `cache: "reload"` fetch in the same tab proved the bytes were there all along.
+// That is a milder cousin of the v1 disaster below — time-bounded rather than
+// permanent — but it makes the guarantee in this comment false, so: `no-cache`
+// forces a revalidation (a conditional request; an unchanged file still answers
+// 304 and costs almost nothing) instead of a blind cache read.
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: "no-cache" })
       .then((res) => {
         if (res && res.ok && res.type === "basic") {
           const copy = res.clone();
