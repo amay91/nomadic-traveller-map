@@ -2036,7 +2036,20 @@ requestAnimationFrame(() => { svg.classList.add("ready"); setTimeout(() => paint
    file:// and http: (non-localhost) can't register a service worker at all,
    so this fails silently there by design — the map still works, just without
    the install/offline layer. */
-if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+// The hostname list mirrors what browsers actually treat as a "potentially
+// trustworthy" origin, which is wider than the literal string "localhost":
+// 127.0.0.1 and [::1] qualify too. Checking only for "localhost" made the app
+// refuse to register on an origin where registration works perfectly — found
+// while staging the Pages deploy, where a dry run served from 127.0.0.1 reported
+// zero service workers and briefly looked like a deployment problem. Production
+// was never affected (Pages is https), but a verification step that reports a
+// false failure is worth fixing, since the next person to see it has to re-derive
+// that it's benign.
+const secureForSW =
+  location.protocol === "https:" ||
+  ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname) ||
+  location.hostname.endsWith(".localhost");
+if ("serviceWorker" in navigator && secureForSW) {
   navigator.serviceWorker.register("service-worker.js").catch(() => {});
 }
 
