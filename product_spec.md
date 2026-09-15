@@ -4,7 +4,7 @@
 **Date:** 2026-09-14
 **Author / Product Owner:** Amay Narayan
 **Version:** **1.0.0 — signed off by the owner 2026-09-14.** Phases 0–2 are all complete and verified: the 9-round design study, the build (B1–B11), and the full polish/verify pass (V1 accessibility, V2/V2a/V2b mobile, V3 size + performance, V4 six rounds of real-use inspection producing nine findings — year periods for Lived/Home (F21), map labels and their three refinement rounds (F22), a mobile dropdown-rendering bug, a broken save-by-link on the single-file build (§4.5), and a stale cache-first service worker that had been silently serving a frozen app). Full detail in `tasks.md`.
-**Status:** **Done and in active use.** `app/` is the real, running app. 33/33 automated tests pass. Size: 77.9 KB of an 80 KB code-excluding-comments budget (§4.1) — **only 2.1 KB of headroom left**, tightest it's been; the next feature that touches `app/` should check the budget before writing much code, not after. **Live at https://amay91.github.io/nomadic-traveller-map/ since 2026-09-15** (`plan.md` §6, `tasks.md` Phase 3). Phase 3 is complete apart from D5, an optional custom domain.
+**Status:** **Done and in active use.** `app/` is the real, running app. 33/33 automated tests pass. Size: 78.5 KB of an 80 KB code-excluding-comments budget (§4.1) — **only 1.5 KB of headroom left**, tightest it's been; the next feature that touches `app/` should check the budget before writing much code, not after. **Live at https://amay91.github.io/nomadic-traveller-map/ since 2026-09-15** (`plan.md` §6, `tasks.md` Phase 3). Phase 3 is complete apart from D5, an optional custom domain.
 **Not claimed at 1.0, stated rather than buried:** performance is verified against Chrome's 4× CPU-throttle proxy, **not a physical phone** (§4.1), and B11's claim that an installed PWA is exempt from iOS's 7-day storage eviction has never been verified. Neither blocked sign-off; neither should be read as measured.
 
 > **Document hierarchy**
@@ -109,11 +109,11 @@ MoSCoW: **M** must, **S** should, **C** could.
 
 | File | Total | Comments | **Counted (code only)** |
 |---|---|---|---|
-| `index.html` | 12.2 KB | 3.0 KB | 9.3 KB |
-| `styles.css` | 37.3 KB | 14.3 KB | 23.0 KB |
+| `index.html` | 12.4 KB | 3.0 KB | 9.4 KB |
+| `styles.css` | 37.9 KB | 14.4 KB | 23.4 KB |
 | `logic.js` | 19.9 KB | 11.2 KB | 8.6 KB |
 | `app.js` | 72.7 KB | 35.7 KB | 37.0 KB |
-| **Total** | **142.1 KB** | **64.2 KB** | **77.9 KB of 80 KB — 2.1 KB headroom** |
+| **Total** | **142.8 KB** | **64.4 KB** | **78.5 KB of 80 KB — 1.5 KB headroom** |
 
 (Re-measured 2026-09-14 after V4 rounds 1–5 — year periods, F22 and its three follow-up rounds, the dropdown reparent, the email fallback, the service-worker strategy change. `tools/measure-size.mjs` is the source of this table; re-run it rather than hand-updating after any further change to `app/`.)
 
