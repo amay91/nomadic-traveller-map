@@ -50,6 +50,16 @@
      outright, matching the pattern the rest of the app already uses. -->
 <ul id="list" class="list" role="listbox" aria-label="Matching countries"></ul>
 
+<!-- The two map-level actions, flanking the entry bar: Clear to its left, Save
+     to its right of Submit. They are body-level fixed chrome like #pop/#tip/
+     .zoom rather than children of #entry, because #entry becomes a sliding
+     bottom sheet on a phone and anything inside it slides away with it — these
+     two have to stay reachable while the sheet is closed.
+     The second word of each label is dropped on a phone (see .dockWord), where
+     the row they share with the counts pill is only ~150px wide. -->
+<button type="button" id="clearMap" class="dockBtn glass ghost" aria-label="Clear the whole map">Clear<span class="dockWord"> map</span></button>
+<button type="button" id="emailMap" class="dockBtn glass" aria-label="Save or email this map to yourself">Save<span class="dockWord"> / email map</span></button>
+
 <!-- Phone only. The entry sheet is three full-width rows; parking it open cost a
      quarter of the screen while idle (spec §4.7), so on a phone it opens on demand
      from here and the map keeps the space the rest of the time. -->
@@ -94,10 +104,10 @@
     <p id="empty" class="empty muted" hidden>No countries yet. Type one below or click the map.</p>
   </div>
   <footer>
-    <div class="footRow">
-      <button type="button" class="btn" id="emailMap">Email me this map</button>
-      <button type="button" class="btn ghost" id="clearMap">Clear map</button>
-    </div>
+    <!-- "Email me this map" and "Clear map" used to live here. They moved out to
+         the map itself (#clearMap / #emailMap, beside the entry bar), because
+         saving is the one thing a user must not have to go looking for — the
+         map IS the link, and an unsaved map is a lost one. -->
     <p class="footNote muted" id="savedState">Your map lives in its own link — no account, nothing stored on a server. Email it to yourself to keep it.</p>
     <p class="muted"><button class="link" id="exp">Export backup</button> · <button class="link" id="imp">Import</button></p>
     <input type="file" id="importFile" accept="application/json,.json" hidden>
@@ -114,7 +124,7 @@
 
 <div class="about">
   <button id="aboutBtn" class="pill glass aboutBtn" aria-expanded="false" aria-controls="aboutCard">
-    <b>195</b> countries · <b id="aboutExtraCount">45</b> territories
+    <b>195</b><span class="aboutWord"> countries</span> · <b id="aboutExtraCount">45</b><span class="aboutWord"> territories</span>
   </button>
   <div id="aboutCard" class="aboutCard glass" role="dialog" aria-hidden="true" inert>
     <p><b>195</b> is the official count — UN member states plus the Holy See and the State of Palestine (Worldometers/UN). The counter above tracks only these.</p>

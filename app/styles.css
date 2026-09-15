@@ -79,7 +79,15 @@ button{cursor:pointer}
 @keyframes bump{50%{transform:scale(1.25);color:var(--visited-hi)}}
 
 /* entry bar */
-.bar{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);width:min(640px,calc(100vw - 32px));
+/* --barW is a variable, not a literal, because #clearMap and #emailMap are fixed
+   elements that have to land exactly against this bar's edges. Deriving their
+   position from the same expression is what keeps them attached to it at every
+   width; two hand-tuned numbers would drift apart the first time either changed.
+   The `100vw - 440px` term reserves the space the flanking buttons and the
+   corner chrome need, so the bar yields as the window narrows instead of
+   pushing the Save button underneath the zoom controls. */
+:root{--barW:min(640px,calc(100vw - 440px))}
+.bar{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);width:var(--barW);
   display:flex;align-items:stretch;gap:6px;padding:6px}
 .bar.shake{animation:shake .32s ease}
 @keyframes shake{25%{transform:translateX(calc(-50% - 6px))}75%{transform:translateX(calc(-50% + 6px))}}
@@ -213,10 +221,17 @@ tfoot b{font-size:16px}
 /* "official count" caveat — still the bottom-right corner, but now BESIDE the
    zoom/reset column rather than stacked above it, which would push it a third of
    the way up the screen */
-.about{position:fixed;right:72px;bottom:20px;z-index:4}
+/* Moved from right:72px to the bottom-LEFT on 2026-09-15, to make room for the
+   Save button beside the entry bar — and it fixed a pre-existing bug on the way.
+   Measured across desktop widths: at 1024px and below this pill was already
+   overlapping the entry bar (74px of overlap at 1024, 236px at 700), because
+   both sat at bottom:20 and the bar's centred 640px left too little beside it.
+   V2 verified 360/390/430 and 1440 and never looked at the 641–1150 band, so
+   nothing caught it. The left corner was empty at every width. */
+.about{position:fixed;left:16px;bottom:20px;z-index:4}
 .aboutBtn{height:32px;padding:0 12px;font-size:12px;color:var(--muted);border-radius:999px}
 .aboutBtn b{color:var(--ink);font-weight:650}
-.aboutCard{position:absolute;right:0;bottom:calc(100% + 8px);width:280px;padding:16px;
+.aboutCard{position:absolute;left:0;bottom:calc(100% + 8px);width:280px;padding:16px;
   opacity:0;transform:translateY(6px) scale(.98);pointer-events:none;transition:opacity .16s,transform .16s var(--ease)}
 .aboutCard.open{opacity:1;transform:none;pointer-events:auto}
 .aboutCard p{margin:0 0 10px;font-size:12.5px;line-height:1.5}
@@ -233,10 +248,47 @@ tfoot b{font-size:16px}
   transition:opacity .2s,transform .24s var(--spring)}
 .addBtn span{font-size:19px;font-weight:400;line-height:0;color:var(--visited)}
 .addBtn.off{opacity:0;transform:translateX(-50%) scale(.9) translateY(8px);pointer-events:none}
+/* ── the two map-level actions, flanking the entry bar ───────────────────────
+   Clear sits just left of the bar, Save just right of Submit. Both are anchored
+   off --barW rather than a fixed offset, so they stay welded to the bar's edges
+   at every width. Deliberately quieter than Submit: Submit is the thing you
+   press constantly, these two are occasional, and Clear is destructive (it has
+   Undo, but it should still never be the loudest thing on screen). */
+.dockBtn{position:fixed;bottom:20px;z-index:4;height:36px;padding:0 14px;border:0;border-radius:999px;
+  font-size:12.5px;font-weight:600;color:var(--ink);white-space:nowrap;
+  transition:background .15s,transform .15s,opacity .18s}
+.dockBtn:hover{background:#F1F4F6}
+.dockBtn:active{transform:scale(.97)}
+.dockBtn.ghost{color:var(--muted)}
+.dockBtn.ghost:hover{color:var(--visited);background:#F6EFEF}
+#clearMap{right:calc(50% + var(--barW) / 2 + 10px)}
+#emailMap{left:calc(50% + var(--barW) / 2 + 10px)}
+/* Unsaved work should say so where the button is, not only in the panel. */
+#emailMap.stale{box-shadow:0 0 0 1px var(--visited),var(--shadow);color:var(--visited)}
 .barX,.barTitle{display:none}
 
 /* A short viewport — a phone in landscape, or a squat desktop window — puts the
    entry bar and the "195 countries" pill in the same strip; lift the pill clear. */
+/* The counts pill carries its own explanation, which is the point of it — but
+   below 1280px there isn't room for all of "195 countries · 45 territories"
+   AND the Clear button beside the bar. The numbers are the part that has to
+   survive; the card behind the pill still spells the rest out in full. */
+@media (max-width:1279px){ .aboutWord{display:none} }
+
+/* 641–900px: a narrow desktop window. Flanking the bar here would squeeze it to
+   about 260px — two fields and a Submit button in less space than one field
+   needs — so the two actions move to a row ABOVE the bar instead, left-aligned
+   after the counts pill. The bar also gives up the width the zoom column needs
+   (it was overlapping it here before this change, the same pre-existing bug the
+   counts pill had). Flanking resumes at 901px, where there is room for it. */
+@media (min-width:641px) and (max-width:900px){
+  :root{--barW:min(640px,calc(100vw - 160px))}
+  .about{bottom:84px}
+  .dockBtn{bottom:84px}
+  #clearMap{right:auto;left:224px}
+  #emailMap{left:322px}
+}
+
 @media (max-height:540px){ .about{bottom:calc(94px + env(safe-area-inset-bottom))} }
 
 /* ── mobile: a phone composition, not the desktop layout stacked (plan L14) ── */
@@ -278,7 +330,27 @@ tfoot b{font-size:16px}
      the right — both thumbs get a control and nothing sits under the add pill. */
   .zoom{left:12px;right:auto;bottom:calc(16px + env(safe-area-inset-bottom))}
   .reset{right:12px;bottom:calc(16px + env(safe-area-inset-bottom));width:44px;height:44px}
-  .about{right:12px;bottom:calc(74px + env(safe-area-inset-bottom))}
+  .about{left:auto;right:12px;bottom:calc(74px + env(safe-area-inset-bottom))}
+  /* Clear and Save share the counts pill's row, on the left where it is empty.
+     The bottom row below is already full — zoom, the add pill, reset — and
+     nothing may sit under the add pill. Second words are dropped (.dockWord) and
+     the pills shrink: this row is only ~150px wide beside the counts pill at
+     360px, which two full labels could not fit. They keep a 44px hit area via
+     ::after rather than growing, the same trick the other compact controls use. */
+  .dockWord{display:none}
+  /* 112px, not 74px: the zoom control is a COLUMN of two 44px buttons, so it is
+     88px tall and reaches up to 104px from the bottom — the left half of the
+     74px row is its, not free space. Measured, after a first attempt at 74px
+     put Clear squarely on top of it (a 44×30px overlap). They flank at the same
+     height instead, mirroring the desktop arrangement, clear of the thumb row
+     below (zoom · add · reset) and of the counts pill at 74px on the right. */
+  .dockBtn{bottom:calc(112px + env(safe-area-inset-bottom));height:30px;padding:0 11px;font-size:11.5px}
+  .dockBtn::after{content:"";position:absolute;left:0;right:0;top:50%;height:44px;transform:translateY(-50%)}
+  #clearMap{right:auto;left:12px}
+  #emailMap{left:auto;right:12px}
+  /* a bottom sheet owns the lower screen: these stand down with the rest */
+  body.entry-open .dockBtn,body.pop-open .dockBtn{opacity:0;pointer-events:none;transition:opacity .18s}
+  .aboutCard{left:auto;right:0}
   .aboutCard{width:min(300px,calc(100vw - 24px))}
   /* while a bottom sheet — the entry form or a country's popover — owns the
      lower screen, the resting controls get out of its way rather than floating

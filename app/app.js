@@ -894,10 +894,20 @@ function updateSavedState() {
   if (!el) return;
   const now = encodeMap(visits), kept = Store.keptCode();
   const n = Object.keys(visits).length;
-  if (!n) { el.textContent = "Your map lives in its own link — no account, nothing stored on a server."; el.classList.remove("stale"); return; }
-  if (!kept) { el.textContent = "Not saved yet — email yourself the link to keep this map."; el.classList.add("stale"); return; }
-  if (kept !== now) { el.textContent = "Changed since you last saved — email yourself the link again to keep it."; el.classList.add("stale"); return; }
-  el.textContent = "Saved — the link you emailed is up to date."; el.classList.remove("stale");
+  // The same judgement drives two surfaces now: the sentence in the panel, and a
+  // quiet outline on the Save button itself. The panel's copy is only read by
+  // someone who already opened the panel — which is exactly the person who does
+  // NOT need reminding. Since the button moved onto the map (2026-09-15), the
+  // state can be shown where the action is.
+  const mark = (stale, text) => {
+    el.textContent = text;
+    el.classList.toggle("stale", stale);
+    $("#emailMap")?.classList.toggle("stale", stale);
+  };
+  if (!n) return mark(false, "Your map lives in its own link — no account, nothing stored on a server.");
+  if (!kept) return mark(true, "Not saved yet — email yourself the link to keep this map.");
+  if (kept !== now) return mark(true, "Changed since you last saved — email yourself the link again to keep it.");
+  mark(false, "Saved — the link you emailed is up to date.");
 }
 // mailto: needs no server and no address on our side — it hands the user's own
 // mail client a pre-filled message and gets out of the way. Nothing about the
