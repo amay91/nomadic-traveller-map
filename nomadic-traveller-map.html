@@ -77,9 +77,25 @@ button{cursor:pointer}
 .glass{background:var(--surface);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:var(--shadow);border-radius:16px}
 .top{position:fixed;inset:16px 16px auto 16px;display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none}
 .top>*{pointer-events:auto}
-.brand{display:flex;gap:10px;align-items:center;height:40px;padding:0 16px 0 12px;border-radius:999px}
+.brandWrap{position:relative}
+.brand{display:flex;gap:10px;align-items:center;height:40px;padding:0 16px 0 12px;border-radius:999px;border:0;text-align:left}
+.brandText{display:block}
 .brand b{display:block;font-size:15px;letter-spacing:.2px}
 .brand small{display:block;font-size:12px;color:var(--muted)}
+/* The wordmark's own description. Shown on hover (mouse) and on a .show class
+   the script toggles (touch, which has no hover state to rely on). A real
+   element rather than a `title` attribute — native tooltips are slow, unstyled,
+   and simply never appear on a phone. */
+.brandTip{position:absolute;left:0;top:calc(100% + 8px);margin:0;width:max-content;max-width:min(320px,calc(100vw - 32px));
+  padding:9px 13px;border-radius:12px;font-size:12.5px;line-height:1.45;color:var(--ink);
+  opacity:0;transform:translateY(-4px);pointer-events:none;transition:opacity .16s ease,transform .16s var(--ease);z-index:7}
+.brand:hover+.brandTip,.brand:focus-visible+.brandTip,.brandTip.show{opacity:1;transform:none}
+/* Escape must dismiss a tooltip (WAI-ARIA practices), and simply dropping the
+   .show class doesn't: the button still holds keyboard focus, so :focus-visible
+   immediately puts it back. `hush` outranks every reveal rule until the pointer
+   leaves or focus moves on — which is the only way to dismiss it without
+   blurring the button and dumping focus onto <body>, the exact defect V1 fixed. */
+.brandWrap.hush .brandTip{opacity:0;transform:translateY(-4px)}
 .mark{width:12px;height:12px;border-radius:50%;background:var(--visited);box-shadow:0 0 0 4px color-mix(in srgb,var(--visited) 22%,transparent)}
 .pill{display:flex;align-items:center;gap:10px;height:40px;padding:0 14px 0 16px;border:0;border-radius:999px;font-size:14px;transition:transform .2s var(--spring)}
 .pill:hover{transform:translateY(-1px)}
@@ -168,7 +184,14 @@ button{cursor:pointer}
 .panel>header{position:relative;padding:22px 24px 14px}
 .panel h2{margin:0;font-size:20px;font-weight:650}
 .panel header p{margin:3px 0 0;font-size:13px}
-.tablewrap{flex:1;overflow:auto;padding:0 12px}
+/* min-height is load-bearing, not defensive tidiness. The panel is a flex column
+   and a flex item shrinks below its content by default, so anything that grows
+   the footer steals height from the table first — and the table is what the
+   panel is FOR. Expanding "About this map" on a 390x700 phone with 20 countries
+   collapsed this to exactly 0px and pushed the footer 30px past the panel's
+   bottom edge. A floor here plus a scroll cap on the About body (below) means
+   neither can starve the other. */
+.tablewrap{flex:1;min-height:120px;overflow:auto;padding:0 12px}
 table{width:100%;border-collapse:collapse;font-size:13.5px}
 th{position:sticky;top:0;background:#fff;text-align:left;padding:0;border-bottom:1px solid var(--hair);z-index:1}
 th button{border:0;background:none;padding:10px 12px;font-size:11px;font-weight:600;letter-spacing:.3px;color:var(--muted);text-transform:uppercase;white-space:nowrap}
@@ -205,6 +228,24 @@ tfoot b{font-size:16px}
 .footRow .btn{flex:1;min-height:40px;font-size:13.5px;padding:0 12px}
 .btn.ghost{background:transparent;color:var(--muted);box-shadow:inset 0 0 0 1px var(--hair)}
 .btn.ghost:hover{background:#FCF3F1;color:var(--error);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--error) 35%,transparent)}
+/* "About this map" in the panel. Collapsed by default — the panel's job is the
+   table, and this is read once. */
+.aboutApp{margin:0 0 12px;border-bottom:1px solid var(--hair);padding-bottom:12px}
+.aboutApp summary{cursor:pointer;font-size:13px;font-weight:650;color:var(--ink);padding:4px 0;list-style:none;display:flex;align-items:center;gap:7px}
+.aboutApp summary::-webkit-details-marker{display:none}
+.aboutApp summary::before{content:"";width:0;height:0;border:4.5px solid transparent;border-left-color:var(--muted);transition:transform .18s var(--ease);transform-origin:2px 50%}
+.aboutApp[open] summary::before{transform:rotate(90deg)}
+.aboutApp summary:hover{color:var(--visited)}
+/* Capped and scrollable so a long read can never push the footer past the bottom
+   of the panel — the other half of the .tablewrap min-height fix above. 38vh
+   leaves the table the majority of a short screen while still showing several
+   paragraphs at once. */
+.aboutAppBody{padding-top:4px;max-height:38vh;overflow-y:auto}
+.aboutAppBody p{margin:0 0 10px;font-size:12.5px;line-height:1.55;color:var(--muted)}
+.aboutAppBody p:last-child{margin-bottom:0}
+.aboutAppBody b{color:var(--ink);font-weight:650}
+.aboutAppBody a{color:var(--muted);text-underline-offset:3px}
+.aboutAppBody a:hover{color:var(--visited)}
 .footNote{margin:10px 0 6px;font-size:12px;line-height:1.45}
 .footNote.stale{color:var(--error)}
 .panel footer p{margin:0}
@@ -430,7 +471,18 @@ tfoot b{font-size:16px}
 <svg id="map" role="img" aria-label="World map. Visited countries are highlighted."></svg>
 
 <header class="top">
-  <div class="brand glass"><span class="mark"></span><div><b>Nomadic Traveller Map</b><small>Countries you've been to</small></div></div>
+  <!-- The wordmark answers "what is this?" on hover, and on tap — a phone has no
+       hover state, so the same text has to be reachable by pressing it. The
+       tooltip is a real element rather than a `title` attribute: native tooltips
+       take ~1s to appear, can't be styled to match the app, and never show on
+       touch at all. aria-describedby gives a screen reader the same sentence. -->
+  <div class="brandWrap">
+    <button type="button" class="brand glass" id="brandBtn" aria-describedby="brandTip">
+      <span class="mark" aria-hidden="true"></span>
+      <span class="brandText"><b>Nomadic Traveller Map</b><small>Countries you've been to</small></span>
+    </button>
+    <p id="brandTip" class="brandTip glass" role="tooltip">A personal map of every country you've been to, and when.</p>
+  </div>
   <button id="countBtn" class="pill glass" aria-label="Open the list of visited countries">
     <span class="num"><b id="count">0</b> / 195</span>
     <svg viewBox="0 0 16 16" fill="none"><path d="M2.5 4h11M2.5 8h11M2.5 12h7"/></svg>
@@ -520,6 +572,20 @@ tfoot b{font-size:16px}
          the map itself (#clearMap / #emailMap, beside the entry bar), because
          saving is the one thing a user must not have to go looking for — the
          map IS the link, and an unsaved map is a lost one. -->
+    <!-- A <details> rather than a JS-driven accordion: it opens, closes, is
+         keyboard-operable and is announced correctly with no script at all,
+         which is the right trade for a section most people open once. -->
+    <details class="aboutApp">
+      <summary>About this map</summary>
+      <div class="aboutAppBody">
+        <p>A personal map of every country you've been to, and when. Click a country or type its name, add the year or years you were there, and mark whether you <b>visited</b>, <b>lived</b> there, or call it <b>home</b>. The map fills in as you go.</p>
+        <p><b>Your map is the link.</b> Everything you record is encoded into this page's own address — there's no account to create, no server storing your travel history, and nothing about you leaving your device. Bookmark the link and you've saved your map; email it to yourself and you've backed it up; open it anywhere and it's there.</p>
+        <p><b>It works without a network.</b> Add it to your home screen and it opens and runs offline, which is the point for something you might reach for on a plane or in a hotel with bad wifi.</p>
+        <p><b>The geography is honest.</b> The map uses an <b>Equal Earth</b> projection, where every country's drawn area is proportional to its real area. The familiar school-room world map inflates everything near the poles — Greenland appears roughly the size of Africa, when Africa is fourteen times larger. On a map built to compare where you've been, that would quietly flatter some journeys and shrink others.</p>
+        <p><b>195 countries, plus 45 territories kept separate.</b> Greenland, Taiwan, Puerto Rico and others are real, distinct, inhabited places worth recording — but they aren't sovereign countries, so they're tracked without ever inflating your count out of 195. The pill in the corner explains the distinction.</p>
+        <p class="muted">Built as a small, dependency-free web page: no framework, no tracking, no analytics, nothing to install. <a href="https://github.com/amay91/nomadic-traveller-map" target="_blank" rel="noopener">Source on GitHub</a>.</p>
+      </div>
+    </details>
     <p class="footNote muted" id="savedState">Your map lives in its own link — no account, nothing stored on a server. Email it to yourself to keep it.</p>
     <p class="muted"><button class="link" id="exp">Export backup</button> · <button class="link" id="imp">Import</button></p>
     <input type="file" id="importFile" accept="application/json,.json" hidden>
@@ -2103,12 +2169,32 @@ function trapTab(container, e) {
 pop.addEventListener("keydown", (e) => trapTab(pop, e));
 $("#panel").addEventListener("keydown", (e) => trapTab($("#panel"), e));
 
+/* ── the wordmark's description ──
+   CSS already shows it on hover and on keyboard focus. This adds the tap path,
+   which is not a nicety: a phone has no hover state at all, so without it the
+   sentence would be unreachable on the device half the audience uses. Toggling
+   rather than showing means a second tap dismisses it, and it also closes on
+   Escape and on a tap anywhere else — the same three ways every other
+   dismissible surface in this app closes. */
+const brandBtn = $("#brandBtn"), brandTip = $("#brandTip"), brandWrap = $(".brandWrap");
+const showBrandTip = (on) => { brandTip.classList.toggle("show", on); if (on) brandWrap.classList.remove("hush"); };
+brandBtn.onclick = (e) => { e.stopPropagation(); showBrandTip(!brandTip.classList.contains("show")); };
+addEventListener("click", (e) => { if (!e.target.closest(".brandWrap")) showBrandTip(false); });
+// A dismissal lasts until the user shows fresh intent: moving focus away, or
+// deliberately hovering the wordmark again. NOT until the pointer merely moves —
+// that was the first version, and it meant Escape appeared to do nothing at all,
+// because sliding the mouse off cleared the hush while the button still held
+// focus, and :focus-visible put the tooltip straight back.
+brandBtn.addEventListener("blur", () => brandWrap.classList.remove("hush"));
+brandBtn.addEventListener("pointerenter", () => brandWrap.classList.remove("hush"));
+
 /* ── global keys ── */
 addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if ($("#panel").classList.contains("open")) closePanel();
   else if (pop.classList.contains("open")) select(null);
   else if (aboutCard.classList.contains("open")) toggleAbout(false);
+  else if (+getComputedStyle(brandTip).opacity > 0) { showBrandTip(false); brandWrap.classList.add("hush"); }
 });
 addEventListener("resize", () => { fit(); apply(home()); });
 

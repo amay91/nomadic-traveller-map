@@ -18,7 +18,18 @@
 <svg id="map" role="img" aria-label="World map. Visited countries are highlighted."></svg>
 
 <header class="top">
-  <div class="brand glass"><span class="mark"></span><div><b>Nomadic Traveller Map</b><small>Countries you've been to</small></div></div>
+  <!-- The wordmark answers "what is this?" on hover, and on tap — a phone has no
+       hover state, so the same text has to be reachable by pressing it. The
+       tooltip is a real element rather than a `title` attribute: native tooltips
+       take ~1s to appear, can't be styled to match the app, and never show on
+       touch at all. aria-describedby gives a screen reader the same sentence. -->
+  <div class="brandWrap">
+    <button type="button" class="brand glass" id="brandBtn" aria-describedby="brandTip">
+      <span class="mark" aria-hidden="true"></span>
+      <span class="brandText"><b>Nomadic Traveller Map</b><small>Countries you've been to</small></span>
+    </button>
+    <p id="brandTip" class="brandTip glass" role="tooltip">A personal map of every country you've been to, and when.</p>
+  </div>
   <button id="countBtn" class="pill glass" aria-label="Open the list of visited countries">
     <span class="num"><b id="count">0</b> / 195</span>
     <svg viewBox="0 0 16 16" fill="none"><path d="M2.5 4h11M2.5 8h11M2.5 12h7"/></svg>
@@ -108,6 +119,20 @@
          the map itself (#clearMap / #emailMap, beside the entry bar), because
          saving is the one thing a user must not have to go looking for — the
          map IS the link, and an unsaved map is a lost one. -->
+    <!-- A <details> rather than a JS-driven accordion: it opens, closes, is
+         keyboard-operable and is announced correctly with no script at all,
+         which is the right trade for a section most people open once. -->
+    <details class="aboutApp">
+      <summary>About this map</summary>
+      <div class="aboutAppBody">
+        <p>A personal map of every country you've been to, and when. Click a country or type its name, add the year or years you were there, and mark whether you <b>visited</b>, <b>lived</b> there, or call it <b>home</b>. The map fills in as you go.</p>
+        <p><b>Your map is the link.</b> Everything you record is encoded into this page's own address — there's no account to create, no server storing your travel history, and nothing about you leaving your device. Bookmark the link and you've saved your map; email it to yourself and you've backed it up; open it anywhere and it's there.</p>
+        <p><b>It works without a network.</b> Add it to your home screen and it opens and runs offline, which is the point for something you might reach for on a plane or in a hotel with bad wifi.</p>
+        <p><b>The geography is honest.</b> The map uses an <b>Equal Earth</b> projection, where every country's drawn area is proportional to its real area. The familiar school-room world map inflates everything near the poles — Greenland appears roughly the size of Africa, when Africa is fourteen times larger. On a map built to compare where you've been, that would quietly flatter some journeys and shrink others.</p>
+        <p><b>195 countries, plus 45 territories kept separate.</b> Greenland, Taiwan, Puerto Rico and others are real, distinct, inhabited places worth recording — but they aren't sovereign countries, so they're tracked without ever inflating your count out of 195. The pill in the corner explains the distinction.</p>
+        <p class="muted">Built as a small, dependency-free web page: no framework, no tracking, no analytics, nothing to install. <a href="https://github.com/amay91/nomadic-traveller-map" target="_blank" rel="noopener">Source on GitHub</a>.</p>
+      </div>
+    </details>
     <p class="footNote muted" id="savedState">Your map lives in its own link — no account, nothing stored on a server. Email it to yourself to keep it.</p>
     <p class="muted"><button class="link" id="exp">Export backup</button> · <button class="link" id="imp">Import</button></p>
     <input type="file" id="importFile" accept="application/json,.json" hidden>

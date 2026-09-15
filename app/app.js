@@ -1018,12 +1018,32 @@ function trapTab(container, e) {
 pop.addEventListener("keydown", (e) => trapTab(pop, e));
 $("#panel").addEventListener("keydown", (e) => trapTab($("#panel"), e));
 
+/* ── the wordmark's description ──
+   CSS already shows it on hover and on keyboard focus. This adds the tap path,
+   which is not a nicety: a phone has no hover state at all, so without it the
+   sentence would be unreachable on the device half the audience uses. Toggling
+   rather than showing means a second tap dismisses it, and it also closes on
+   Escape and on a tap anywhere else — the same three ways every other
+   dismissible surface in this app closes. */
+const brandBtn = $("#brandBtn"), brandTip = $("#brandTip"), brandWrap = $(".brandWrap");
+const showBrandTip = (on) => { brandTip.classList.toggle("show", on); if (on) brandWrap.classList.remove("hush"); };
+brandBtn.onclick = (e) => { e.stopPropagation(); showBrandTip(!brandTip.classList.contains("show")); };
+addEventListener("click", (e) => { if (!e.target.closest(".brandWrap")) showBrandTip(false); });
+// A dismissal lasts until the user shows fresh intent: moving focus away, or
+// deliberately hovering the wordmark again. NOT until the pointer merely moves —
+// that was the first version, and it meant Escape appeared to do nothing at all,
+// because sliding the mouse off cleared the hush while the button still held
+// focus, and :focus-visible put the tooltip straight back.
+brandBtn.addEventListener("blur", () => brandWrap.classList.remove("hush"));
+brandBtn.addEventListener("pointerenter", () => brandWrap.classList.remove("hush"));
+
 /* ── global keys ── */
 addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if ($("#panel").classList.contains("open")) closePanel();
   else if (pop.classList.contains("open")) select(null);
   else if (aboutCard.classList.contains("open")) toggleAbout(false);
+  else if (+getComputedStyle(brandTip).opacity > 0) { showBrandTip(false); brandWrap.classList.add("hush"); }
 });
 addEventListener("resize", () => { fit(); apply(home()); });
 

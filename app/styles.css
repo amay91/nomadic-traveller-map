@@ -66,9 +66,25 @@ button{cursor:pointer}
 .glass{background:var(--surface);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:var(--shadow);border-radius:16px}
 .top{position:fixed;inset:16px 16px auto 16px;display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none}
 .top>*{pointer-events:auto}
-.brand{display:flex;gap:10px;align-items:center;height:40px;padding:0 16px 0 12px;border-radius:999px}
+.brandWrap{position:relative}
+.brand{display:flex;gap:10px;align-items:center;height:40px;padding:0 16px 0 12px;border-radius:999px;border:0;text-align:left}
+.brandText{display:block}
 .brand b{display:block;font-size:15px;letter-spacing:.2px}
 .brand small{display:block;font-size:12px;color:var(--muted)}
+/* The wordmark's own description. Shown on hover (mouse) and on a .show class
+   the script toggles (touch, which has no hover state to rely on). A real
+   element rather than a `title` attribute — native tooltips are slow, unstyled,
+   and simply never appear on a phone. */
+.brandTip{position:absolute;left:0;top:calc(100% + 8px);margin:0;width:max-content;max-width:min(320px,calc(100vw - 32px));
+  padding:9px 13px;border-radius:12px;font-size:12.5px;line-height:1.45;color:var(--ink);
+  opacity:0;transform:translateY(-4px);pointer-events:none;transition:opacity .16s ease,transform .16s var(--ease);z-index:7}
+.brand:hover+.brandTip,.brand:focus-visible+.brandTip,.brandTip.show{opacity:1;transform:none}
+/* Escape must dismiss a tooltip (WAI-ARIA practices), and simply dropping the
+   .show class doesn't: the button still holds keyboard focus, so :focus-visible
+   immediately puts it back. `hush` outranks every reveal rule until the pointer
+   leaves or focus moves on — which is the only way to dismiss it without
+   blurring the button and dumping focus onto <body>, the exact defect V1 fixed. */
+.brandWrap.hush .brandTip{opacity:0;transform:translateY(-4px)}
 .mark{width:12px;height:12px;border-radius:50%;background:var(--visited);box-shadow:0 0 0 4px color-mix(in srgb,var(--visited) 22%,transparent)}
 .pill{display:flex;align-items:center;gap:10px;height:40px;padding:0 14px 0 16px;border:0;border-radius:999px;font-size:14px;transition:transform .2s var(--spring)}
 .pill:hover{transform:translateY(-1px)}
@@ -157,7 +173,14 @@ button{cursor:pointer}
 .panel>header{position:relative;padding:22px 24px 14px}
 .panel h2{margin:0;font-size:20px;font-weight:650}
 .panel header p{margin:3px 0 0;font-size:13px}
-.tablewrap{flex:1;overflow:auto;padding:0 12px}
+/* min-height is load-bearing, not defensive tidiness. The panel is a flex column
+   and a flex item shrinks below its content by default, so anything that grows
+   the footer steals height from the table first — and the table is what the
+   panel is FOR. Expanding "About this map" on a 390x700 phone with 20 countries
+   collapsed this to exactly 0px and pushed the footer 30px past the panel's
+   bottom edge. A floor here plus a scroll cap on the About body (below) means
+   neither can starve the other. */
+.tablewrap{flex:1;min-height:120px;overflow:auto;padding:0 12px}
 table{width:100%;border-collapse:collapse;font-size:13.5px}
 th{position:sticky;top:0;background:#fff;text-align:left;padding:0;border-bottom:1px solid var(--hair);z-index:1}
 th button{border:0;background:none;padding:10px 12px;font-size:11px;font-weight:600;letter-spacing:.3px;color:var(--muted);text-transform:uppercase;white-space:nowrap}
@@ -194,6 +217,24 @@ tfoot b{font-size:16px}
 .footRow .btn{flex:1;min-height:40px;font-size:13.5px;padding:0 12px}
 .btn.ghost{background:transparent;color:var(--muted);box-shadow:inset 0 0 0 1px var(--hair)}
 .btn.ghost:hover{background:#FCF3F1;color:var(--error);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--error) 35%,transparent)}
+/* "About this map" in the panel. Collapsed by default — the panel's job is the
+   table, and this is read once. */
+.aboutApp{margin:0 0 12px;border-bottom:1px solid var(--hair);padding-bottom:12px}
+.aboutApp summary{cursor:pointer;font-size:13px;font-weight:650;color:var(--ink);padding:4px 0;list-style:none;display:flex;align-items:center;gap:7px}
+.aboutApp summary::-webkit-details-marker{display:none}
+.aboutApp summary::before{content:"";width:0;height:0;border:4.5px solid transparent;border-left-color:var(--muted);transition:transform .18s var(--ease);transform-origin:2px 50%}
+.aboutApp[open] summary::before{transform:rotate(90deg)}
+.aboutApp summary:hover{color:var(--visited)}
+/* Capped and scrollable so a long read can never push the footer past the bottom
+   of the panel — the other half of the .tablewrap min-height fix above. 38vh
+   leaves the table the majority of a short screen while still showing several
+   paragraphs at once. */
+.aboutAppBody{padding-top:4px;max-height:38vh;overflow-y:auto}
+.aboutAppBody p{margin:0 0 10px;font-size:12.5px;line-height:1.55;color:var(--muted)}
+.aboutAppBody p:last-child{margin-bottom:0}
+.aboutAppBody b{color:var(--ink);font-weight:650}
+.aboutAppBody a{color:var(--muted);text-underline-offset:3px}
+.aboutAppBody a:hover{color:var(--visited)}
 .footNote{margin:10px 0 6px;font-size:12px;line-height:1.45}
 .footNote.stale{color:var(--error)}
 .panel footer p{margin:0}
