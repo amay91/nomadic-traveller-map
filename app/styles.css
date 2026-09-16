@@ -316,6 +316,13 @@ body:not(.heat-off) .c.is-upcoming-split.h5{fill:url(#splitH5)}
 .link{border:0;background:none;padding:6px 2px;color:var(--muted);font-size:13px;text-decoration:underline;text-underline-offset:3px}
 .link:hover{color:var(--error)}
 .link[hidden]{display:none}
+/* E6's view mode (2026-09-16) hides these six via the `hidden` attribute, and
+   every one of them sets its own `display` in a rule elsewhere in this file —
+   `.bar{display:flex}`, `.addBtn{display:none/flex}`, `.dockBtn`'s own rules,
+   `.viewBanner{display:flex}` — which at equal specificity an AUTHOR rule wins
+   over the UA stylesheet's `[hidden]{display:none}`, same reason `.link[hidden]`
+   above needs its own line rather than relying on the attribute alone. */
+#entry[hidden],#addBtn[hidden],#clearMap[hidden],#emailMap[hidden],#savedState[hidden],#viewBanner[hidden]{display:none}
 
 /* tooltip */
 .tip{position:fixed;left:0;top:0;padding:6px 10px;border-radius:8px;background:var(--ink);color:var(--on-ink);font-size:12.5px;white-space:nowrap;pointer-events:none;
@@ -386,7 +393,8 @@ body:not(.heat-off) .mk-home{fill:var(--mk-contrast);stroke:var(--ink)}
 .statusRow button:disabled{opacity:.35;cursor:not-allowed}
 .statusRow button[data-s=bucket][aria-pressed=true]{color:var(--bucket)}
 .statusRow button[data-s=upcoming][aria-pressed=true]{color:var(--upcoming-ink)}
-.field input:disabled,.pop input:disabled{opacity:.55;cursor:not-allowed}
+.field input:disabled,.pop input:disabled,.link:disabled{opacity:.55;cursor:not-allowed}
+.link:disabled:hover{color:var(--muted)}
 
 /* ── map key (prototype 2026-09-15) ──
    A classed map is only readable with its legend in view, so the key lives on
@@ -531,6 +539,14 @@ tfoot b{font-size:16px}
   transition:opacity .2s,transform .24s var(--spring)}
 .addBtn span{font-size:19px;font-weight:400;line-height:0;color:var(--visited)}
 .addBtn.off{opacity:0;transform:translateX(-50%) scale(.9) translateY(8px);pointer-events:none}
+/* Occupies the SAME bottom-centre slot as .bar (desktop) / .addBtn (mobile) —
+   never shown alongside either, since a link is either editable or read-only,
+   never both — so it needs no width/breakpoint rules of its own beyond the
+   one position swap below (E6, 2026-09-16). */
+.viewBanner{position:fixed;left:50%;bottom:20px;z-index:4;transform:translateX(-50%);
+  display:flex;align-items:center;gap:14px;padding:10px 12px 10px 18px;border-radius:999px;
+  font-size:13px;font-weight:600;color:var(--ink);white-space:nowrap}
+@media (max-width:640px){.viewBanner{bottom:calc(16px + env(safe-area-inset-bottom))}}
 /* ── the two map-level actions, flanking the entry bar ───────────────────────
    Clear sits just left of the bar, Save just right of Submit. Both are anchored
    off --barW rather than a fixed offset, so they stay welded to the bar's edges

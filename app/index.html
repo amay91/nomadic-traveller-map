@@ -140,6 +140,17 @@
      from here and the map keeps the space the rest of the time. -->
 <button type="button" id="addBtn" class="addBtn glass"><span aria-hidden="true">+</span> Add a country</button>
 
+<!-- Shown ONLY for a #v= (read-only) link, in the exact same bottom-centre slot
+     #entry/#addBtn occupy for an editable one (E6, 2026-09-16) — never both at
+     once, so this needs no extra layout rules beyond reusing that slot's own
+     positioning. The one thing every accept criterion for this feature asked
+     for lives here: a plain statement that this isn't your map, and one
+     obvious way to make it yours. app.js fills in the count. -->
+<div id="viewBanner" class="viewBanner glass" hidden>
+  <span id="viewBannerText">Viewing a shared map</span>
+  <button type="button" id="claimMap" class="btn">Make it your own copy</button>
+</div>
+
 <div id="pop" class="pop glass" role="dialog" aria-labelledby="popName" aria-hidden="true" inert>
   <button type="button" class="x" id="popClose" aria-label="Close">×</button>
   <h2 id="popName"></h2>
@@ -223,6 +234,12 @@
          chrome, since that's what it is — an artifact, not a persistence
          action like Save. -->
     <button type="button" class="btn cardBtn" id="exportCard">Export image</button>
+    <!-- The read-only counterpart to Save/email map (E6, 2026-09-16): that
+         button's link is fully editable, the wrong thing to hand someone else
+         (F17's own "the map is the link" design means editable-by-default).
+         Uses the SAME encodeMap() payload under a distinct #v= key, so
+         logic.js needed no changes at all — only the fragment name differs. -->
+    <button type="button" class="btn cardBtn ghost" id="shareView">Share a read-only link</button>
     <p class="muted"><button class="link" id="exp">Export backup</button> · <button class="link" id="imp">Import</button></p>
     <input type="file" id="importFile" accept="application/json,.json" hidden>
   </footer>

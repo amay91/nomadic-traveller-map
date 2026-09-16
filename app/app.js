@@ -833,15 +833,24 @@ function openPop(iso) {
     : st === "lived" ? "lived there" + (ys.length ? " · " + formatYearsDisplay(ys) : "")
     : (ys.length ? `visited ${ys.length}×` : "visited") + (upYs.length ? ` · return trip booked · ${formatYearsDisplay(upYs)}` : "");
   $("#popMeta").textContent = CONTINENTS[c.cont] + (c.official ? "" : " · Territory") + " · " + note;
-  $("#popYears").value = formatYearsEdit(ys);
-  $("#popErr").textContent = "";
-  $("#popRemove").hidden = !rec;
-  setStatus(st);
-  // Prefill the return-trip row from `u`, AFTER setStatus/paintUpRow — that
-  // call already reset and hid it, so this only ever runs for a genuinely
-  // visited record that has one.
-  if (typeof rec?.u === "number") { $("#popUpToggle").checked = true; $("#popUpYear").hidden = false; $("#popUpYear").value = String(rec.u); }
-  lockChips("#popStatus", iso);
+  // The whole edit form — status chips, years field, the return-trip toggle,
+  // Submit, Remove — is ONE element (#popForm), so a read-only view (E6,
+  // 2026-09-16) hides it in one line rather than each control separately.
+  // What's left (name + the note built above) is already a complete summary:
+  // popMeta already reads out status and every year that matters, including
+  // a return trip, so nothing informative is lost by hiding the form under it.
+  $("#popForm").hidden = viewOnly;
+  if (!viewOnly) {
+    $("#popYears").value = formatYearsEdit(ys);
+    $("#popErr").textContent = "";
+    $("#popRemove").hidden = !rec;
+    setStatus(st);
+    // Prefill the return-trip row from `u`, AFTER setStatus/paintUpRow — that
+    // call already reset and hid it, so this only ever runs for a genuinely
+    // visited record that has one.
+    if (typeof rec?.u === "number") { $("#popUpToggle").checked = true; $("#popUpYear").hidden = false; $("#popUpYear").value = String(rec.u); }
+    lockChips("#popStatus", iso);
+  }
   // anchor beside the country's on-screen box
   let r = null;
   els(iso).forEach((e) => { const b = e.getBoundingClientRect(); r = r ? { left: Math.min(r.left, b.left), right: Math.max(r.right, b.right), top: Math.min(r.top, b.top), bottom: Math.max(r.bottom, b.bottom) } : b; });
@@ -854,7 +863,11 @@ function openPop(iso) {
   pop.classList.add("open"); pop.setAttribute("aria-hidden", "false"); pop.inert = false;
   // on a phone the popover IS a bottom sheet, so the resting controls stand down
   document.body.classList.add("pop-open");
-  setTimeout(() => $("#popYears").focus({ preventScroll: true }), 60);
+  // A hidden element can't receive focus (the browser just silently declines,
+  // no error) — #popYears sits inside the now-hidden #popForm in view mode,
+  // so focus would land nowhere. #popClose is the nearest equivalent: real,
+  // visible, and the natural next stop for a dialog with nothing to fill in.
+  setTimeout(() => $(viewOnly ? "#popClose" : "#popYears").focus({ preventScroll: true }), 60);
 }
 function closePop() {
   pop.classList.remove("open"); pop.setAttribute("aria-hidden", "true"); pop.inert = true;
@@ -1540,6 +1553,35 @@ $("#emailMap").onclick = () => {
   Store.markKept(visits); updateSavedState();
   toast(linkWorks ? "Opening your email app — send it to yourself to keep this map" : "Opening your email app — attach the file that just downloaded, then send it to yourself", null);
 };
+// The read-only counterpart to the button above (E6, 2026-09-16): Save/email
+// hands over a fully editable #m= link — right for keeping your OWN map, the
+// wrong thing to hand someone else, since anything they change becomes their
+// own map with no sign they've diverged from yours. Same encodeMap() payload,
+// a distinct #v= key is the only difference — logic.js needed no changes.
+// Works unchanged while already viewing someone else's read-only map too:
+// re-sharing the same immutable `visits` just reproduces the identical link.
+$("#shareView").onclick = () => {
+  if (!Object.keys(visits).length) return toast("Add a country first — there's nothing to share yet", null);
+  const n = stats(visits, placeOf).count;
+  const subject = "A travel map, shared with you";
+  const linkWorks = location.protocol === "http:" || location.protocol === "https:";
+  let body;
+  if (linkWorks) {
+    const url = location.origin + location.pathname + "#v=" + encodeMap(visits);
+    body = `Here's a look at my travel map — ${n} of 195 countries so far.\n\nOpen this link to see it. It's read-only: nothing you do there can change my own map.\n\n${url}`;
+  } else {
+    // Unlike Save/email's own fallback (§4.5/L15), there is no working
+    // alternative to offer here: a read-only VIEW LINK is only meaningful
+    // once the app is actually hosted at a real address, which a downloaded
+    // single file, by definition, is not. Exported JSON isn't a substitute —
+    // it's an editable backup of YOUR OWN map, not a safe thing to hand
+    // someone else either.
+    toast("Read-only sharing needs a real web address — open the hosted version of the app to share this way", null);
+    return;
+  }
+  location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  toast("Opening your email app — this link is read-only for whoever opens it", null);
+};
 $("#clearMap").onclick = () => {
   if (!Object.keys(visits).length) return toast("The map is already empty", null);
   const prev = structuredClone(visits);
@@ -1707,11 +1749,60 @@ $("#themeBtn").onclick = () => {
 };
 applyTheme();
 
+// Hides everything that mutates the map, and shows the one thing this mode
+// ADDS: a plain statement that it isn't yours, with one obvious way to make
+// it so (#claimMap, below). Called once, from boot, never toggled back off —
+// a #v= session fully re-navigates to become editable (claimMap reloads the
+// page onto an #m= link) rather than trying to un-hide a dozen pieces of UI
+// and reconcile whatever state they were left in.
+//
+// Export image (E5) and Export backup stay reachable on purpose: a viewer
+// looking at someone else's map has as much reason to want a picture or a
+// JSON copy of what they're looking at as the owner does, and neither one
+// mutates `visits`. Import is the one exception — it REPLACES `visits`
+// outright, which has no coherent meaning for a session with no "your own
+// working map" open to import into.
+function enterViewMode() {
+  $("#entry").hidden = true; $("#addBtn").hidden = true;
+  $("#clearMap").hidden = true; $("#emailMap").hidden = true;
+  $("#savedState").hidden = true;
+  $("#imp").disabled = true;
+  const n = stats(visits, placeOf).count;
+  $("#viewBannerText").textContent = `Viewing a shared map · ${n} of 195 countries`;
+  $("#viewBanner").hidden = false;
+}
+// Hands off to the ALREADY-PROVEN #m= boot path rather than writing
+// localStorage directly from here: rewrite the hash and reload, and
+// Store.load()'s existing "a link beats local storage" rule does the rest —
+// exactly as safely as opening anyone else's #m= link today, because that is
+// now precisely what this is. No special-casing needed for "what if the
+// viewer already has their own map saved in this browser": that question is
+// already answered, today, for ordinary #m= links (nothing is overwritten
+// until they actually submit an edit), and this claims no different a path.
+$("#claimMap").onclick = () => {
+  location.hash = "m=" + encodeMap(visits);
+  location.reload();
+};
 /* ── boot ── */
 $("#aboutExtraCount").textContent = $("#aboutExtraCount2").textContent = TERRITORIES.length;
-// A link beats local storage beats an empty map.
-visits = Store.load() || {};
-syncUrl();
+// A #v= link is a READ-ONLY view (E6, 2026-09-16) — checked BEFORE the
+// existing "a link beats local storage" rule below, and handled as its own
+// branch that touches NEITHER: it must never write localStorage (a viewer's
+// own saved map, sitting in this SAME browser, must not be silently
+// overwritten by something they're only looking at) and must never call
+// syncUrl() (which would rewrite the address bar's own #v= into an #m=,
+// quietly turning "view" into "edit" before the viewer has done anything).
+// Kept out of Store entirely on purpose — Store is documented as "the only
+// place the app touches persistence," and a view that touches NONE of it
+// doesn't belong inside that abstraction.
+const viewCode = new URLSearchParams(location.hash.slice(1)).get("v");
+let viewOnly = false;
+if (viewCode) { visits = decodeMap(viewCode, isKnown); viewOnly = true; enterViewMode(); }
+else {
+  // A link beats local storage beats an empty map.
+  visits = Store.load() || {};
+  syncUrl();
+}
 renderMap(); fit(); apply(home()); renderRows();
 // Paint the entry bar's status row once at boot. Without this, paintStatus()
 // only ever ran from an interaction (a status click, choosing a country, typing,
