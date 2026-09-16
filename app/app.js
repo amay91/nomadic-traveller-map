@@ -1316,6 +1316,15 @@ $("#aboutExtraCount").textContent = $("#aboutExtraCount2").textContent = TERRITO
 visits = Store.load() || {};
 syncUrl();
 renderMap(); fit(); apply(home()); renderRows();
+// Paint the entry bar's status row once at boot. Without this, paintStatus()
+// only ever ran from an interaction (a status click, choosing a country, typing,
+// blur, submit), so the Year(s) label kept index.html's STATIC text until the
+// user touched something — and that text says "Year(s) visited", not
+// "— optional". The one moment someone needs to know years are skippable (F32)
+// is their first look at an empty map, which was the one moment it didn't say
+// so. State-wise this is a no-op (barStatus already starts "visited"); it exists
+// purely so paintStatus owns that label rather than sharing it with the markup.
+setBarStatus("visited");
 requestAnimationFrame(() => { svg.classList.add("ready"); setTimeout(() => paint(true), 250); });
 
 /* ── installable (PWA) ──
