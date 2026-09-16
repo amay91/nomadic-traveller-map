@@ -3,9 +3,11 @@
    against both water and land than any translucent-white value tested
    (4.0:1 / 8.8:1 vs 3–3.7 / 6–8 for the alternatives). */
 :root{
-  /* Tells the browser both schemes exist, so form controls, scrollbars and the
-     canvas behind the page follow along instead of staying stubbornly light. */
-  color-scheme:light dark;
+  /* Light is the DEFAULT, whatever the system says — the theme is an explicit
+     choice now, not a reflection of the OS (see the Atlas Night block below).
+     So this names one scheme rather than "light dark": form controls and
+     scrollbars must follow the app's choice, not the system's. */
+  color-scheme:light;
   --water:#7C99B4; --land:#E9DCC3; --land-hi:#D6CAB3; --visited:#9C3826; --visited-hi:#8C3222;
   /* --lbl-ink is the label's own colour and is NOT the same token as the border
      stroke, though they hold the same value here. In dark mode one value can't
@@ -321,8 +323,24 @@ body:not(.heat-off) .mk-home{fill:var(--mk-contrast);stroke:var(--ink)}
    A classed map is only readable with its legend in view, so the key lives on
    the map rather than behind a menu. Top-left, under the wordmark: the one
    corner nothing else uses at any width. */
-.legend{position:fixed;left:16px;top:66px;z-index:4;padding:8px 10px;border-radius:12px;
+/* The key and the theme button stack in one fixed column — see index.html for
+   why the button isn't inside the key itself. */
+.topLeft{position:fixed;left:16px;top:66px;z-index:4;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.legend{padding:8px 10px;border-radius:12px;
   display:flex;flex-direction:column;gap:7px;font-size:11px;color:var(--muted)}
+/* Theme toggle. Sized and spaced like the other glass pills; the label swaps
+   between "Dark Mode" and "Light Mode" in JS, and the icon swaps here so the
+   script never rewrites markup (L17: colour and its cues live in CSS). */
+.themeBtn{display:flex;align-items:center;gap:7px;border:0;padding:0 12px;height:34px;border-radius:999px;
+  font-size:12px;font-weight:600;color:var(--ink);transition:background .15s}
+.themeBtn:hover{background:var(--subtle)}
+.thIcon{width:14px;height:14px;flex:none;color:var(--ink)}
+.thMoon{fill:currentColor}
+.thSun{display:none}
+.thSun circle{fill:currentColor}
+.thSun path{stroke:currentColor;stroke-width:1.6;stroke-linecap:round;fill:none}
+[data-theme=dark] .thMoon{display:none}
+[data-theme=dark] .thSun{display:block}
 .lgRow{display:flex;align-items:center;gap:8px}
 .lgTitle{font-size:10px;font-weight:650;letter-spacing:.35px;text-transform:uppercase}
 .lgRamp{display:flex;gap:2px;margin:0;padding:0;list-style:none}
@@ -343,7 +361,7 @@ body:not(.heat-off) .mk-home{fill:var(--mk-contrast);stroke:var(--ink)}
 .lgToggle{margin-left:auto;display:flex;align-items:center;gap:5px;cursor:pointer;color:var(--ink);font-weight:600;user-select:none}
 .lgToggle input{margin:0;width:14px;height:14px;accent-color:var(--visited);cursor:pointer}
 @media (max-width:640px){
-  .legend{left:12px;top:62px}
+  .topLeft{left:12px;top:62px}
   tbody tr.grp{display:block}
 }
 .r{text-align:right}
@@ -641,9 +659,18 @@ tfoot b{font-size:16px}
    ramp tried, some class lands where NEITHER white nor deep ink clears 4.5 at
    the rendered 0.95 — the exact trap F27 hit and fixed by nudging class 3. Each
    class here is likewise nudged off its even lightness until its better ink
-   passes, which is why the L values aren't a tidy arithmetic series. */
-@media (prefers-color-scheme:dark){
-  :root{
+   passes, which is why the L values aren't a tidy arithmetic series.
+
+   CHANGED 2026-09-16 (owner): this was a `prefers-color-scheme: dark` media
+   query, so the app opened dark for anyone whose OS is dark. The theme is now
+   an explicit CHOICE — light by default whatever the system says, with a
+   button that switches it — so these values hang off a `data-theme` attribute
+   on <html> instead. That attribute is set by app.js from a localStorage
+   preference, the same per-device treatment the heatmap toggle already gets
+   (L16): a display choice, never written into the map link, so a shared map
+   looks the way the VIEWER prefers rather than the way the sender did. */
+:root[data-theme="dark"]{
+  color-scheme:dark;
     --water:#0E1B26; --land:#554E44; --land-hi:#655D50; --visited:#C4472E; --visited-hi:#D75F45;
     --dot:#6E6454; --border-line:#B8AA97; --lbl-ink:#F5EFE4;
     --h1:#7B221B; --h2:#9B3E32; --h3:#B65547; --h4:#DF7968; --h5:#FF9C89;
@@ -655,15 +682,14 @@ tfoot b{font-size:16px}
     --scrim:rgba(0,0,0,.45); --lift-flood:#000; --hover-mix:#FFF; --shadow-tint:rgba(0,0,0,.5);
     --shadow:0 1px 2px rgba(0,0,0,.35),0 10px 30px rgba(0,0,0,.45);
   }
-  /* The inverted ink split — see the note beside the light rules above. */
-  body:not(.heat-off) .lbl.h1,body:not(.heat-off) .lbl.h2,body:not(.heat-off) .lbl.h3{fill:var(--lbl-light)}
-  body:not(.heat-off) .lbl.h4,body:not(.heat-off) .lbl.h5{fill:var(--lbl-pale)}
-  /* Bucket indigo is light enough in dark mode that white text on it fails
-     (3.07) while deep ink clears comfortably (5.16) — measured, not assumed. */
-  .lbl.is-bucket{fill:var(--lbl-pale)}
-  /* The legend swatches carry the same ramp, so their text has to flip the same
-     way the map labels do, or the key becomes the one unreadable thing on it. */
-  .lgRamp .h1,.lgRamp .h2{color:var(--lbl-light)}
-  .lgRamp .h4,.lgRamp .h5{color:var(--lbl-pale)}
-}
+/* The inverted ink split — see the note beside the light rules above. */
+[data-theme=dark] body:not(.heat-off) .lbl.h1,[data-theme=dark] body:not(.heat-off) .lbl.h2,[data-theme=dark] body:not(.heat-off) .lbl.h3{fill:var(--lbl-light)}
+[data-theme=dark] body:not(.heat-off) .lbl.h4,[data-theme=dark] body:not(.heat-off) .lbl.h5{fill:var(--lbl-pale)}
+/* Bucket indigo is light enough in dark mode that white text on it fails
+   (3.07) while deep ink clears comfortably (5.16) — measured, not assumed. */
+[data-theme=dark] .lbl.is-bucket{fill:var(--lbl-pale)}
+/* The legend swatches carry the same ramp, so their text has to flip the same
+   way the map labels do, or the key becomes the one unreadable thing on it. */
+[data-theme=dark] .lgRamp .h1,[data-theme=dark] .lgRamp .h2{color:var(--lbl-light)}
+[data-theme=dark] .lgRamp .h4,[data-theme=dark] .lgRamp .h5{color:var(--lbl-pale)}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition-duration:0s!important;animation-duration:0s!important;animation-delay:0s!important}}

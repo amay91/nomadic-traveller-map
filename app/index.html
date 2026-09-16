@@ -5,8 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Nomadic Traveller Map</title>
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#7C99B4" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0E1B26" media="(prefers-color-scheme: dark)">
+<!-- One meta, updated by the theme toggle. The media-query pair this replaces
+     could only ever follow the SYSTEM preference, which is exactly what the
+     app no longer does: the theme is an explicit choice (default light). -->
+<meta name="theme-color" id="themeMeta" content="#7C99B4">
 <link rel="icon" href="icons/icon-192.png" sizes="192x192" type="image/png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -41,6 +43,13 @@
      shades — and a classed map can only be read with its key in view, so this
      sits on the map itself. The toggle keeps the original single-red look one
      tap away; the choice is a per-device preference, not part of the map link. -->
+<!-- The key and the theme button share one fixed wrapper rather than each
+     being positioned separately: the key's height changes (its ramp row hides
+     when the heatmap is off), so a button pinned at its own fixed `top` would
+     drift out of alignment with it. Stacking them lets the button sit under
+     the scale at any height. The button is deliberately OUTSIDE #legend —
+     that group is labelled "Map key" and a theme control isn't part of it. -->
+<div class="topLeft">
 <div id="legend" class="legend glass" role="group" aria-label="Map key">
   <div class="lgRow">
     <span class="lgTitle">Visits</span>
@@ -54,6 +63,16 @@
     <span class="lgBucket"><i class="lgSw"></i>Bucket list</span>
     <label class="lgToggle"><input type="checkbox" id="heatToggle" checked>Heatmap</label>
   </div>
+</div>
+<!-- Labelled with the mode a click switches TO, not the mode you're in —
+     matching the owner's portfolio dashboard, where the same button reads
+     "Dark Mode" on the light theme and "Light Mode" on the dark one. Both
+     icons ship and CSS shows the right one, so JS never touches the markup. -->
+<button type="button" id="themeBtn" class="themeBtn glass" aria-pressed="false">
+  <svg class="thIcon thMoon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.6 10.3A5.8 5.8 0 0 1 6.1 2.8a5.9 5.9 0 1 0 7.5 7.5Z"/></svg>
+  <svg class="thIcon thSun" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3.1"/><path d="M8 1v1.8M8 13.2V15M1 8h1.8M13.2 8H15M3.1 3.1l1.3 1.3M11.6 11.6l1.3 1.3M12.9 3.1l-1.3 1.3M4.4 11.6l-1.3 1.3"/></svg>
+  <span id="themeLabel">Dark Mode</span>
+</button>
 </div>
 
 <form id="entry" class="bar glass" autocomplete="off" novalidate>

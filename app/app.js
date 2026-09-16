@@ -1310,6 +1310,35 @@ $("#heatToggle").onchange = (e) => {
 };
 applyHeat();
 
+/* ── light / dark ──
+   The theme is an explicit choice, defaulting to LIGHT whatever the operating
+   system prefers (owner, 2026-09-16 — the app used to follow
+   prefers-color-scheme and so opened dark for anyone whose OS was). Stored
+   per device in localStorage and never in the map link, exactly as the heatmap
+   toggle is (L16): how a map is shaded is the viewer's business, so a link
+   shared from a dark phone must not force dark on whoever opens it.
+   The button is labelled with the mode a click switches TO — "Dark Mode" while
+   light — matching the owner's portfolio dashboard. try/catch because storage
+   can be blocked outright (private windows, some embedded browsers). */
+const THEME_KEY = "travelmap.theme";
+let darkOn = false;
+try { darkOn = localStorage.getItem(THEME_KEY) === "dark"; } catch {}
+function applyTheme() {
+  document.documentElement.dataset.theme = darkOn ? "dark" : "light";
+  $("#themeLabel").textContent = darkOn ? "Light Mode" : "Dark Mode";
+  $("#themeBtn").setAttribute("aria-pressed", String(darkOn));
+  $("#themeBtn").title = darkOn ? "Switch to light mode" : "Switch to dark mode";
+  // The address-bar/status-bar colour has to be set here rather than by a
+  // media query, since the scheme is no longer the system's to decide.
+  $("#themeMeta").setAttribute("content", darkOn ? "#0E1B26" : "#7C99B4");
+}
+$("#themeBtn").onclick = () => {
+  darkOn = !darkOn;
+  try { localStorage.setItem(THEME_KEY, darkOn ? "dark" : "light"); } catch {}
+  applyTheme();
+};
+applyTheme();
+
 /* ── boot ── */
 $("#aboutExtraCount").textContent = $("#aboutExtraCount2").textContent = TERRITORIES.length;
 // A link beats local storage beats an empty map.
