@@ -1,4 +1,4 @@
-// Measure app/ against spec §4.1's code-excluding-comments budget (100 KB).
+// Measure app/ against spec §4.1's code-excluding-comments budget (110 KB).
 // Comments are free — the budget was re-anchored 2026-09-14 specifically so
 // documentation stops competing with the number. Re-run after any change to
 // app/index.html, app/app.js, app/logic.js, or app/styles.css.
@@ -10,11 +10,11 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const APP = join(dirname(fileURLToPath(import.meta.url)), "..", "app");
-// 80 -> 100 KB, owner decision 2026-09-15 (spec §4.1 records why). This is the
-// ONE place the ceiling is defined; the message below derives from it rather
-// than repeating the number, which is how the old value came to be written out
-// in five separate documents.
-const BUDGET = 100 * 1024;
+// 80 -> 100 -> 110 KB, owner decisions 2026-09-15 and 2026-09-16 (spec §4.1
+// records why each time). This is the ONE place the ceiling is defined; the
+// message below derives from it rather than repeating the number, which is
+// how the old value came to be written out in five separate documents.
+const BUDGET = 110 * 1024;
 
 const files = [
   ["index.html", (s) => [...s.matchAll(/<!--[\s\S]*?-->/g)]],

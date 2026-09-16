@@ -496,6 +496,7 @@ tfoot b{font-size:16px}
 .footNote{margin:10px 0 6px;font-size:12px;line-height:1.45}
 .footNote.stale{color:var(--error)}
 .panel footer p{margin:0}
+.cardBtn{display:block;width:100%;margin:2px 0 12px;min-height:40px;font-size:13px}
 
 /* zoom buttons — always visible, because zooming shouldn't depend on a pinch
    landing cleanly. Desktop: bottom right, with the reset button above them and
@@ -994,6 +995,15 @@ tfoot b{font-size:16px}
       </div>
     </details>
     <p class="footNote muted" id="savedState">Your map lives in its own link — no account, nothing stored on a server. Email it to yourself to keep it.</p>
+    <!-- The shareable summary card (E5, 2026-09-16): a PNG, not a link — the
+         map link is an editable copy of the whole record, the wrong thing to
+         post publicly. Drawn entirely on a <canvas> from the same geo.js path
+         data the live map uses (Path2D accepts an SVG path string directly),
+         so it needs no new geometry and no runtime dependency (G1). Grouped
+         with the other "get your data out" actions rather than the map's own
+         chrome, since that's what it is — an artifact, not a persistence
+         action like Save. -->
+    <button type="button" class="btn cardBtn" id="exportCard">Export image</button>
     <p class="muted"><button class="link" id="exp">Export backup</button> · <button class="link" id="imp">Import</button></p>
     <input type="file" id="importFile" accept="application/json,.json" hidden>
   </footer>
@@ -3015,6 +3025,238 @@ function updateSavedState() {
 // "download and open" flow always produces a content:// origin. Detected and
 // redirected to the one mechanism this app has that's already protocol-
 // independent — Export/Import — rather than emailing a link that cannot work.
+/* ── shareable summary card (E5, 2026-09-16, owner: "a full summary... fun,
+   engaging, modern, futuristic, and cool") ──
+   A PNG, deliberately not a link: the map link is an editable copy of the
+   whole record (F17), the wrong thing to post publicly. Drawn entirely on an
+   offscreen <canvas> from the SAME geo.js path data the live map renders —
+   `new Path2D(d)` accepts an SVG path string directly, so this needs no new
+   geometry and no runtime dependency (G1). Verified mockup with the owner
+   before writing this (a Spotify-Wrapped-style card, approved 2026-09-16).
+
+   Deliberately always the DARK palette, independent of the viewer's own
+   light/dark toggle (owner's call) — a fixed "showcase" identity, not a
+   mirror of whatever they currently have set. Values are copied from
+   styles.css's [data-theme=dark] block rather than read via
+   getComputedStyle: reading the LIVE custom properties would mean forcing
+   dark mode, drawing, then restoring — a visible flash for no benefit, since
+   this palette is fixed, not user-customisable. ⚠ If Atlas Night's dark
+   tokens are ever retuned, this copy needs updating by hand; there is no way
+   around that duplication without the flash it avoids. */
+const CARD = {
+  water: "#0E1B26", land: "#554E44", border: "#B8AA97",
+  visited: "#C4472E", h: ["#7B221B", "#9B3E32", "#B65547", "#DF7968", "#FF9C89"],
+  bucket: "#7E8AD8", upcoming: "#7CD6C9",
+  ink: "#E7EBEF", muted: "#A6B1BB", panel: "#141C24", hair: "rgba(231,235,239,.10)",
+};
+// Mirrors paint()'s CSS-class cascade, computed directly to a fillStyle since
+// canvas has no classes. `bx0..by1` are GEO.a's OWN bbox corners for this
+// place, passed through UNTRANSFORMED — createLinearGradient is specified in
+// whatever coordinate space is active on the context at call time, and the
+// map's own scale/translate is already active when this runs, so passing raw
+// GEO-space numbers here lands the gradient exactly on the shape's bbox
+// diagonal, the same "hard stop at the corner-to-corner line" trick the live
+// map's SVG gradient uses (styles.css's #splitFlat etc.), just computed by
+// hand because canvas has no objectBoundingBox mode to do it automatically.
+function cardFill(ctx, rec, bx0, by0, bx1, by1) {
+  if (!rec) return CARD.land;
+  if (rec.s === "bucket") return CARD.bucket;
+  if (rec.s === "upcoming") return CARD.upcoming;
+  const k = heatClass(rec), base = k > 0 ? CARD.h[k - 1] : CARD.visited;
+  if (typeof rec.u !== "number") return base;
+  const g = ctx.createLinearGradient(bx0, by0, bx1, by1);
+  g.addColorStop(0.5, base); g.addColorStop(0.5, CARD.upcoming);
+  return g;
+}
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath(); ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+// A capped, wrapped row of pills (Upcoming / Bucket list) — returns the Y
+// position after the last row drawn, so the caller can stack the next
+// section under whatever height this one actually used (a short list and a
+// long one can't share a fixed offset). Capped at MAX entries + a "+N more"
+// pill rather than growing the card without bound for a large bucket list.
+function cardPills(ctx, items, x0, y, maxW, colour, max = 8) {
+  const shown = items.slice(0, max), extra = items.length - shown.length;
+  const labels = shown.map((it) => it.name + (it.label ? "  " + it.label : ""));
+  if (extra > 0) labels.push(`+${extra} more`);
+  ctx.font = "600 15px system-ui"; let x = x0, rowY = y;
+  for (const label of labels) {
+    const w = ctx.measureText(label).width + 28;
+    if (x + w > x0 + maxW) { x = x0; rowY += 40; }
+    roundRect(ctx, x, rowY, w, 30, 15);
+    ctx.fillStyle = "rgba(255,255,255,.04)"; ctx.fill();
+    ctx.lineWidth = 1; ctx.strokeStyle = colour + "59"; ctx.stroke(); // ~35% alpha hex suffix
+    ctx.fillStyle = CARD.ink; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+    ctx.fillText(label, x + 14, rowY + 16);
+    x += w + 8;
+  }
+  return rowY + 40;
+}
+// Gathers name+year for every place with a booked trip (either shape —
+// upcomingYearsOf already hides which one) and every bucket-list place,
+// sorted A→Z. Kept in app.js rather than logic.js: like renderRows(), it
+// reads PLACE (a DOM-adjacent lookup built from COUNTRIES/TERRITORIES), not
+// pure data — the same split L9 already draws throughout this file.
+function cardLists() {
+  const up = [], bk = [];
+  for (const iso in visits) {
+    const rec = visits[iso], c = PLACE.get(iso); if (!c) continue;
+    const uy = upcomingYearsOf(rec);
+    if (uy.length) up.push({ name: c.name, label: formatYearsDisplay(uy) + (rec.s === "upcoming" ? "" : " · return") });
+    if (rec.s === "bucket") bk.push({ name: c.name, label: "" });
+  }
+  up.sort((a, b) => a.name.localeCompare(b.name));
+  bk.sort((a, b) => a.name.localeCompare(b.name));
+  return { up, bk };
+}
+// 1080x1350 — a 4:5 "portrait" ratio, the common social/story share shape,
+// matching the approved mockup's own proportions. Built at this fixed pixel
+// size regardless of the viewer's own screen (an offscreen canvas, never
+// inserted into the page), so the PNG is crisp wherever it's opened.
+function buildCard() {
+  const W = 1080, H = 1350, pad = 64;
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = CARD.panel; ctx.fillRect(0, 0, W, H);
+  const { count: n, territoryCount: nt, bucketCount: nb, upcomingCount: nu, byContinent: bc } = stats(visits, placeOf);
+  const { up, bk } = cardLists();
+
+  // Header
+  ctx.fillStyle = CARD.visited; ctx.beginPath(); ctx.arc(pad + 6, pad + 6, 6, 0, 7); ctx.fill();
+  ctx.fillStyle = CARD.ink; ctx.font = "700 20px system-ui"; ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
+  ctx.fillText("NOMADIC TRAVELLER MAP", pad + 22, pad + 12);
+  ctx.fillStyle = CARD.muted; ctx.font = "500 13px system-ui";
+  ctx.fillText("Countries you've been to, and when", pad + 22, pad + 32);
+  ctx.textAlign = "right"; ctx.fillText(String(new Date().getFullYear()), W - pad, pad + 12);
+
+  // Hero: N of 195, and the percentage
+  let y = pad + 100;
+  ctx.textAlign = "left"; ctx.fillStyle = CARD.ink; ctx.font = "750 84px system-ui";
+  ctx.fillText(String(n), pad, y);
+  const heroW = ctx.measureText(String(n)).width;
+  ctx.font = "500 18px system-ui"; ctx.fillStyle = CARD.muted;
+  ctx.fillText("of 195 countries", pad + heroW + 16, y - 4);
+  ctx.textAlign = "right"; ctx.fillStyle = CARD.upcoming; ctx.font = "700 26px system-ui";
+  ctx.fillText(((n / 195) * 100).toFixed(1) + "%", W - pad, y - 22);
+  ctx.font = "500 11px system-ui"; ctx.fillStyle = CARD.muted;
+  ctx.fillText("OF THE WORLD", W - pad, y);
+
+  // The map itself — every tracked place, coloured exactly as the live map
+  // would, at a fixed size rather than the live view's current zoom/pan.
+  y += 36;
+  const mapW = W - pad * 2, mapH = mapW / (GEO.w / GEO.h), mapY = y;
+  roundRect(ctx, pad, mapY, mapW, mapH, 20); ctx.save(); ctx.clip();
+  ctx.fillStyle = CARD.water; ctx.fillRect(pad, mapY, mapW, mapH);
+  ctx.translate(pad, mapY); ctx.scale(mapW / GEO.w, mapW / GEO.w);
+  ctx.lineWidth = 0.6; ctx.strokeStyle = CARD.border;
+  for (const [, d] of GEO.t) { const p = new Path2D(d); ctx.fillStyle = CARD.land; ctx.fill(p); ctx.stroke(p); }
+  const dotSet = new Set(GEO.d);
+  for (const iso in GEO.c) {
+    if (dotSet.has(iso)) continue;
+    const a = GEO.a[iso], p = new Path2D(GEO.c[iso]);
+    ctx.fillStyle = cardFill(ctx, visits[iso], a[2], a[3], a[4], a[5]);
+    ctx.fill(p); ctx.stroke(p);
+  }
+  for (const iso of GEO.d) {
+    const a = GEO.a[iso];
+    ctx.beginPath(); ctx.arc(a[0], a[1], 2.4, 0, 7);
+    ctx.fillStyle = cardFill(ctx, visits[iso], a[2], a[3], a[4], a[5]);
+    ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = CARD.border; ctx.stroke();
+  }
+  // Lived/Home glyphs — F16's own rule (a small ink ring/dot, never a fill
+  // colour) applies here too: without this, Lived and Home were rendering as
+  // plain top-heat-class fills, indistinguishable from "visited 6+ times" —
+  // found by zooming into a real Lived country on a test render, not assumed.
+  // Ring = Lived (stroke only); filled dot = Home — mirrors renderMarks()'s
+  // own .mk-lived/.mk-home. Always the heat-on ("mk-contrast") variant, since
+  // the card has no heat-off state to represent.
+  ctx.lineWidth = 1.3;
+  for (const iso in visits) {
+    const st = statusOf(visits[iso]); if (st !== "lived" && st !== "home") continue;
+    const a = GEO.a[iso]; if (!a) continue;
+    ctx.beginPath(); ctx.arc(a[0], a[1], 3, 0, 7);
+    if (st === "home") { ctx.fillStyle = "#1A1409"; ctx.fill(); ctx.strokeStyle = CARD.ink; }
+    else ctx.strokeStyle = "#1A1409";
+    ctx.stroke();
+  }
+  ctx.restore(); // drop both the clip and the map's translate/scale — everything after this is plain card pixels again
+  y = mapY + mapH + 44;
+
+  // Per-continent share — the same F35 numbers the panel shows, redrawn as
+  // a 2-column grid of thin glowing bars rather than the panel's plain rows.
+  const contW = (W - pad * 2 - 32) / 2;
+  Object.keys(CONTINENTS).forEach((k, i) => {
+    const v = bc[k] || 0, t = CONT_TOTAL[k], pct = t ? v / t : 0;
+    const cx = pad + (i % 2) * (contW + 32), cy = y + Math.floor(i / 2) * 46;
+    ctx.fillStyle = CARD.muted; ctx.font = "500 13px system-ui"; ctx.textAlign = "left";
+    ctx.fillText(CONTINENTS[k], cx, cy);
+    ctx.fillStyle = CARD.ink; ctx.font = "650 13px system-ui"; ctx.textAlign = "right";
+    ctx.fillText(Math.round(pct * 100) + "%", cx + contW, cy);
+    roundRect(ctx, cx, cy + 8, contW, 5, 2.5); ctx.fillStyle = "rgba(255,255,255,.08)"; ctx.fill();
+    if (pct > 0) { roundRect(ctx, cx, cy + 8, Math.max(6, contW * pct), 5, 2.5); ctx.fillStyle = CARD.h[2]; ctx.fill(); }
+  });
+  y += Math.ceil(Object.keys(CONTINENTS).length / 2) * 46 + 30;
+
+  // Three chips: upcoming / bucket / territories — the two new-this-session
+  // counts get the "wow" colour treatment, territories stay neutral.
+  const chipW = (W - pad * 2 - 24) / 3;
+  [["Upcoming trips", nu, CARD.upcoming], ["Bucket list", nb, CARD.bucket], ["Territories", nt, CARD.ink]]
+    .forEach(([label, val, colour], i) => {
+      const cx = pad + i * (chipW + 12);
+      roundRect(ctx, cx, y, chipW, 74, 14); ctx.fillStyle = "rgba(255,255,255,.03)"; ctx.fill();
+      ctx.fillStyle = colour; ctx.font = "700 26px system-ui"; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+      ctx.fillText(String(val), cx + 16, y + 38);
+      ctx.fillStyle = CARD.muted; ctx.font = "600 10px system-ui";
+      ctx.fillText(label.toUpperCase(), cx + 16, y + 58);
+    });
+  y += 74 + 30;
+
+  // Upcoming / Bucket lists — only drawn if non-empty, so a map with neither
+  // doesn't leave dead space where these sections would be.
+  if (up.length) {
+    ctx.fillStyle = CARD.upcoming; ctx.font = "650 12px system-ui"; ctx.textAlign = "left";
+    ctx.fillText("UPCOMING", pad, y); y += 20;
+    y = cardPills(ctx, up, pad, y, W - pad * 2, CARD.upcoming) + 10;
+  }
+  if (bk.length) {
+    ctx.fillStyle = CARD.bucket; ctx.font = "650 12px system-ui"; ctx.textAlign = "left";
+    ctx.fillText("BUCKET LIST", pad, y); y += 20;
+    y = cardPills(ctx, bk, pad, y, W - pad * 2, CARD.bucket) + 10;
+  }
+
+  // Footer — pinned to the card's bottom edge rather than following the
+  // content above (a short map's footer shouldn't float mid-card). Left
+  // blank on the right on purpose: E6 (read-only share links) will put a QR
+  // code there once it exists — see tasks.md's own note on why not yet (a
+  // correct QR encoder under this app's zero-dependency rule is real work,
+  // and there is no read-only link to encode until E6 ships).
+  const fy = H - pad;
+  ctx.strokeStyle = CARD.hair; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad, fy - 22); ctx.lineTo(W - pad, fy - 22); ctx.stroke();
+  ctx.fillStyle = CARD.muted; ctx.font = "500 11px system-ui"; ctx.textAlign = "left";
+  ctx.fillText("Generated " + new Date().toISOString().slice(0, 10), pad, fy); // ISO date, matching exportJson()'s own filename convention
+  return cv;
+}
+// Same Blob → object URL → <a download> → click pattern as exportJson()
+// below, which is already the proven, protocol-independent mechanism this
+// app uses (§4.5/L15's own lesson: `location.href` breaks on a downloaded
+// file's `content://` origin — but that lesson is specifically about reading
+// the CURRENT address, not about Blob downloads, which never touch it).
+function exportCardImage() {
+  buildCard().toBlob((blob) => {
+    const url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url; a.download = `nomadic-traveller-map-${new Date().toISOString().slice(0, 10)}.png`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, "image/png");
+}
+$("#exportCard").onclick = () => {
+  if (!Object.keys(visits).length) return toast("Add a country first — there's nothing to show yet", null);
+  exportCardImage();
+};
 function exportJson() {
   const blob = new Blob([JSON.stringify({ v: 1, visits }, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);

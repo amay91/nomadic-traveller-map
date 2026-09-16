@@ -479,6 +479,7 @@ tfoot b{font-size:16px}
 .footNote{margin:10px 0 6px;font-size:12px;line-height:1.45}
 .footNote.stale{color:var(--error)}
 .panel footer p{margin:0}
+.cardBtn{display:block;width:100%;margin:2px 0 12px;min-height:40px;font-size:13px}
 
 /* zoom buttons — always visible, because zooming shouldn't depend on a pinch
    landing cleanly. Desktop: bottom right, with the reset button above them and

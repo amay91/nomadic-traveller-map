@@ -214,6 +214,15 @@
       </div>
     </details>
     <p class="footNote muted" id="savedState">Your map lives in its own link — no account, nothing stored on a server. Email it to yourself to keep it.</p>
+    <!-- The shareable summary card (E5, 2026-09-16): a PNG, not a link — the
+         map link is an editable copy of the whole record, the wrong thing to
+         post publicly. Drawn entirely on a <canvas> from the same geo.js path
+         data the live map uses (Path2D accepts an SVG path string directly),
+         so it needs no new geometry and no runtime dependency (G1). Grouped
+         with the other "get your data out" actions rather than the map's own
+         chrome, since that's what it is — an artifact, not a persistence
+         action like Save. -->
+    <button type="button" class="btn cardBtn" id="exportCard">Export image</button>
     <p class="muted"><button class="link" id="exp">Export backup</button> · <button class="link" id="imp">Import</button></p>
     <input type="file" id="importFile" accept="application/json,.json" hidden>
   </footer>
