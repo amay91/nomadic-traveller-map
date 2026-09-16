@@ -141,10 +141,19 @@ function paint(stagger) {
   // heatmap there are now three cases, not two: the two PALE classes (1–2
   // visits) are too light for white text and take a deep ink instead; every
   // darker fill — heat 3–5, classic red, bucket indigo — takes white.
+  // The h1..h5 tag added here (2026-09-15, F34) is what lets the DARK ramp use a
+  // different ink split from the light one without this file knowing anything
+  // about either palette. Light's ramp darkens as visits rise, so its two palest
+  // classes need deep ink; dark's brightens, so its top two do. Encoding that
+  // here would mean app.js reading the colour scheme and carrying a table of
+  // which class is pale — a palette fact, in the one file that should hold none.
+  // Tagging the class and letting CSS answer keeps colour entirely in CSS.
   svg.querySelectorAll(".lbl").forEach((t) => {
     const rec = visits[t.dataset.iso], k = heatClass(rec);
     const pale = heatOn && (k === 1 || k === 2);
     t.classList.toggle("on-pale", pale);
+    t.classList.toggle("is-bucket", rec?.s === "bucket");
+    for (let i = 1; i <= HEAT_BINS.length; i++) t.classList.toggle("h" + i, k === i);
     t.classList.toggle("is-visited", rec?.s === "bucket" || (k > 0 && !pale));
   });
   renderMarks();
@@ -1040,8 +1049,14 @@ function renderRows(enter) {
   // because six rows of "0/54" is noise on an empty map, not information.
   $("#byCont").hidden = !n;
   $("#byCont").innerHTML = !n ? "" : Object.keys(CONTINENTS).map((k) => {
-    const v = bc[k] || 0, t = CONT_TOTAL[k];
-    return `<div><span>${CONTINENTS[k]}</span><b>${v}/${t}</b><i style="--p:${Math.round((v / t) * 100)}%"></i></div>`;
+    // The share is now STATED as well as drawn (E4, owner 2026-09-15). A bar
+    // answers "some" where the reader wants "how much", and the number costs
+    // nothing: it is the same value the bar already encodes. Countries only —
+    // territories are excluded by construction, since CONT_TOTAL counts
+    // COUNTRIES and stats() skips territories (G6), which is what the owner
+    // asked for when scoping this to countries rather than land area.
+    const v = bc[k] || 0, t = CONT_TOTAL[k], pct = Math.round((v / t) * 100);
+    return `<div><span>${CONTINENTS[k]}</span><b>${v}/${t} · ${pct}%</b><i style="--p:${pct}%"></i></div>`;
   }).join("");
   $("#total").innerHTML = `Total &nbsp;<b class="num">${n}</b> of 195 countries <span class="muted">· ${((n / 195) * 100).toFixed(1)}%</span>`
     + (nt ? ` <span class="muted">· +${nt} ${nt === 1 ? "territory" : "territories"} visited</span>` : "")
