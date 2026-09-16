@@ -694,8 +694,11 @@ let pendingStatus = "visited";
 //     is needed, instead of only in an error message after a failed guess.
 function paintStatus(row, label, input, s) {
   document.querySelectorAll(`${row} button`).forEach((b) => b.setAttribute("aria-pressed", b.dataset.s === s));
-  $(label).textContent = s === "lived" ? "Year(s) lived there" : s === "home" ? "Year(s) — optional"
-    : s === "bucket" ? "Year(s) — not needed" : "Year(s) visited";
+  // Every status except Bucket list now says "— optional" (E1): years being
+  // skippable is useless if nothing tells you so, and the field otherwise looks
+  // required. Home already read this way; the other two now match it.
+  $(label).textContent = s === "bucket" ? "Year(s) — not needed"
+    : (s === "lived" ? "Year(s) lived there" : s === "visited" ? "Year(s) visited" : "Year(s)") + " — optional";
   const inp = $(input);
   inp.placeholder = s === "visited" ? "e.g. 2019, 2023" : s === "bucket" ? "Not needed — you haven't been yet"
     : "e.g. 2011-2014, or 2023- if ongoing";
@@ -741,7 +744,7 @@ function openPop(iso) {
     : st === "bucket" ? "on your bucket list"
     : st === "home" ? "home country" + (ys.length ? " · " + formatYearsDisplay(ys) : "")
     : st === "lived" ? "lived there" + (ys.length ? " · " + formatYearsDisplay(ys) : "")
-    : `visited ${ys.length}×`;
+    : ys.length ? `visited ${ys.length}×` : "visited"; // "visited 0×" is nonsense for a yearless visit (E1)
   $("#popMeta").textContent = CONTINENTS[c.cont] + (c.official ? "" : " · Territory") + " · " + note;
   $("#popYears").value = formatYearsEdit(ys);
   $("#popErr").textContent = "";
@@ -804,7 +807,17 @@ $("#popForm").addEventListener("submit", (e) => {
   // there from X to Y" is, so Visited keeps its plain-years-only grammar.
   const raw = $("#popYears").value.trim();
   if (pendingStatus === "bucket" && isBeen(visits[selected])) { $("#popErr").textContent = "Already on your map — the bucket list is for places you haven't been yet"; return; }
-  const r = pendingStatus === "bucket" || (pendingStatus === "home" && !raw) ? { years: [] }
+  // An EMPTY field now means "no years on file" for every status, not just Home
+  // (E1, 2026-09-15). Before this, Visited and Lived refused to save without a
+  // year — so "I've been there, I don't remember when" had no way to be said,
+  // and entering a long backlog in one sitting demanded a remembered year per
+  // country, which in practice produces GUESSED years: worse data than an
+  // honest blank, and it silently inflates F27's visit-count shading. Nothing
+  // downstream needed changing to allow this — `y: []` is exactly what Home and
+  // Bucket list have always stored, heatClass() already classes a yearless
+  // visit as 1, and encodeMap/decodeMap/validateImport already round-trip it.
+  // A non-empty field is still parsed and still rejects a bad token.
+  const r = pendingStatus === "bucket" || !raw ? { years: [] }
     : parseYears(raw, new Date().getFullYear(), pendingStatus !== "visited");
   if (r.error) { $("#popErr").textContent = r.error; return; }
   const iso = selected; closePop(); save(iso, r.years, pendingStatus);
@@ -970,7 +983,7 @@ bar.addEventListener("submit", (e) => {
   // Guard the one path the disabled button can't: picking Bucket list, then
   // typing a place that's already on the map and submitting straight away.
   if (s === "bucket" && isBeen(rec)) { showErr(`${PLACE.get(iso).name} is already on your map — the bucket list is for places you haven't been yet`); return; }
-  const r = s === "bucket" || (s === "home" && !raw) ? { years: [] } : parseYears(raw, new Date().getFullYear(), s !== "visited");
+  const r = s === "bucket" || !raw ? { years: [] } : parseYears(raw, new Date().getFullYear(), s !== "visited"); // empty = no years, any status (E1 — see the popover's own submit)
   if (r.error) { showErr(r.error); yIn.focus(); return; }
   // ADD to what's already recorded rather than replace it (owner report,
   // 2026-09-15): typing a country a second time to fill in a year forgotten the
@@ -992,13 +1005,20 @@ bar.addEventListener("submit", (e) => {
 [cIn, yIn].forEach((i) => i.addEventListener("input", () => err.classList.contains("show") && i === yIn && showErr("")));
 
 /* ── side panel ── */
+// Denominators for the per-continent progress (F13/E3), counted ONCE from
+// COUNTRIES — which holds only the official 195, never TERRITORIES, so G6 is
+// structural here rather than a filter someone has to remember to apply. The
+// totals these produce are the ones `tests/data.test.mjs` already pins against
+// Worldometers (Africa 54 · Asia 48 · Europe 44 · NA 23 · SA 12 · Oceania 14),
+// so this needs no test of its own — it reads the same array that test guards.
+const CONT_TOTAL = COUNTRIES.reduce((m, c) => ((m[c[3]] = (m[c[3]] || 0) + 1), m), {});
 let sort = { col: "name", dir: 1 };
 function renderRows(enter) {
   const rows = Object.entries(visits).map(([iso]) => {
     const c = PLACE.get(iso), rec = visits[iso], ys = yearsOf(rec), st = statusOf(rec);
     // "# times" only means something for a visit — for somewhere you live or
     // are from, a count of years-present isn't a count of trips.
-    return { iso, name: c.name, official: c.official, ys, st, heat: heatClass(rec), times: st === "visited" ? ys.length : null,
+    return { iso, name: c.name, official: c.official, ys, st, heat: heatClass(rec), times: st === "visited" && ys.length ? ys.length : null,
              cont: CONTINENTS[c.cont], last: latestYear(ys) };
   });
   const key = { name: (r) => r.name, years: (r) => r.last, times: (r) => r.times, cont: (r) => r.cont }[sort.col];
@@ -1012,8 +1032,17 @@ function renderRows(enter) {
   tb.innerHTML = been.map(row).join("")
     + (wish.length ? `<tr class="grp"><td colspan="4">Bucket list · ${wish.length}</td></tr>` + wish.map((r, i) => row(r, been.length + i)).join("") : "");
   if (enter && !reduce.matches) { tb.classList.remove("enter"); void tb.offsetWidth; tb.classList.add("enter"); }
-  const { count: n, territoryCount: nt, bucketCount: nb } = stats(visits, placeOf);
+  const { count: n, territoryCount: nt, bucketCount: nb, byContinent: bc } = stats(visits, placeOf);
   $("#pCount").textContent = n;
+  // F13, shipped at last (E3). stats() has computed byContinent on every render
+  // since the beginning and NOTHING consumed it — the arithmetic was being done
+  // and thrown away. Hidden entirely until at least one of the 195 is recorded,
+  // because six rows of "0/54" is noise on an empty map, not information.
+  $("#byCont").hidden = !n;
+  $("#byCont").innerHTML = !n ? "" : Object.keys(CONTINENTS).map((k) => {
+    const v = bc[k] || 0, t = CONT_TOTAL[k];
+    return `<div><span>${CONTINENTS[k]}</span><b>${v}/${t}</b><i style="--p:${Math.round((v / t) * 100)}%"></i></div>`;
+  }).join("");
   $("#total").innerHTML = `Total &nbsp;<b class="num">${n}</b> of 195 countries <span class="muted">· ${((n / 195) * 100).toFixed(1)}%</span>`
     + (nt ? ` <span class="muted">· +${nt} ${nt === 1 ? "territory" : "territories"} visited</span>` : "")
     + (nb ? ` <span class="muted">· ${nb} on your bucket list</span>` : "");

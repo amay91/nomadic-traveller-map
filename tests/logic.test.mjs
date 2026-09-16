@@ -131,7 +131,7 @@ test("heatClass: fixed breaks 1 · 2 · 3 · 4–5 · 6+ (prototype 2026-09-15)"
   assert.equal(heatClass(undefined), 0, "not on the map: no shade");
   assert.deepEqual([1, 2, 3, 4, 5, 6, 7, 20].map((n) => heatClass(v(n))), [1, 2, 3, 4, 4, 5, 5, 5]);
   assert.equal(heatClass({ y: [2019, 2019] }), 2, "a repeated year is a second visit (F3), so it deepens the shade");
-  assert.equal(heatClass({ y: [] }), 1, "a visit with no years (only reachable via a hand-edited link) is still a visit");
+  assert.equal(heatClass({ y: [] }), 1, "a visit with no years (an ordinary entry since E1) is still a visit");
   assert.equal(heatClass({ y: [{ from: 2011, to: 2014 }], s: "lived" }), 5, "Lived takes the top class — no trip count, more exposure than any");
   assert.equal(heatClass({ y: [], s: "home" }), 5, "Home too, even with no years");
   assert.equal(heatClass({ y: [], s: "bucket" }), 0, "a bucket-list place is somewhere you haven't been: no heat");
@@ -188,6 +188,36 @@ test("stats: official-only count/pct/byContinent, territories counted separately
   assert.ok(Math.abs(s.pct - (2 / 195) * 100) < 1e-9);
   assert.equal(s.byContinent.AS, 1);
   assert.equal(s.byContinent.SA, 1);
+});
+
+// E1 (2026-09-15, owner-agreed backlog): a Visited place carrying NO years is
+// something the UI can now actually produce — previously only a hand-edited
+// link could make one, which is why the heatClass case above used to describe
+// it that way. Nothing in logic.js had to change to permit it, and that is
+// precisely why it needs pinning: every one of these behaviours is now
+// load-bearing for an ordinary entry path, and each would fail silently rather
+// than loudly (a yearless visit painting as unvisited land, or vanishing from
+// the count, or being dropped by its own save-link).
+test("a visit with no years counts, shades and round-trips like any other (E1)", () => {
+  const visits = { JPN: { y: [] }, PER: { y: [2019] }, PRI: { y: [] } /* territory */ };
+  const s = stats(visits, placeOf);
+  assert.equal(s.count, 2, "a yearless visit still counts toward the 195");
+  assert.equal(s.territoryCount, 1, "and a yearless territory still counts as a territory, separately");
+  assert.equal(s.byContinent.AS, 1, "it lands in its continent too — F13's per-continent bars read this");
+  assert.ok(isBeen(visits.JPN), "it is somewhere you have been");
+  assert.equal(heatClass(visits.JPN), 1, "and shades as one visit, never as unvisited land");
+  assert.equal(encodeMap({ JPN: { y: [] } }), "JPN", "encodes as a bare code — no status mark, no years");
+  assert.deepEqual(j(decodeMap(encodeMap(visits), isKnown)), visits, "and survives the round-trip through the link");
+  // j() (the JSON round-trip helper every other test here uses) is not cosmetic:
+  // logic.js is loaded through vm.runInNewContext, so the objects it builds carry
+  // that realm's Object/Array prototypes, and deepStrictEqual compares prototypes.
+  // Without it this assertion fails with an "actual" and "expected" that print
+  // identically, which is a genuinely confusing five minutes if you hit it.
+  assert.deepEqual(
+    j(validateImport({ v: 1, visits: { JPN: { y: [] } } }, isKnown).visits),
+    { JPN: { y: [] } },
+    "Import accepts it rather than rejecting the whole file",
+  );
 });
 
 test("encodeMap/decodeMap: lossless round-trip, including status and empty-years Home", () => {

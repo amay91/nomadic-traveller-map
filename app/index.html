@@ -156,6 +156,10 @@
     <!-- A <details> rather than a JS-driven accordion: it opens, closes, is
          keyboard-operable and is announced correctly with no script at all,
          which is the right trade for a section most people open once. -->
+    <!-- Per-continent progress (spec F13). Filled by renderRows(); hidden until
+         something is on the map. Official 195 only — a territory never moves
+         one of these bars (G6). -->
+    <div id="byCont" class="byCont" hidden></div>
     <details class="aboutApp">
       <summary>About this map</summary>
       <div class="aboutAppBody">

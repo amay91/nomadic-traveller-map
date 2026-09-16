@@ -333,6 +333,19 @@ tfoot b{font-size:16px}
 .aboutAppBody b{color:var(--ink);font-weight:650}
 .aboutAppBody a{color:var(--muted);text-underline-offset:3px}
 .aboutAppBody a:hover{color:var(--visited)}
+/* Per-continent progress (spec F13, finally shipped 2026-09-15 — the numbers
+   were already being computed by stats() and discarded). Sits above "About this
+   map" in the panel footer, in the same quiet register as the rest of it: this
+   is a figure you glance at, not the panel's job, which is the table. The bar is
+   an ::after on the <i> so a row needs no extra element, and its width rides a
+   --p custom property set inline by renderRows(). [hidden] needs its own rule
+   here because display:grid would otherwise win over the attribute. */
+.byCont{margin:0 0 12px;border-bottom:1px solid var(--hair);padding-bottom:12px;display:grid;gap:7px}
+.byCont[hidden]{display:none}
+.byCont div{display:grid;grid-template-columns:1fr auto;align-items:baseline;gap:3px 8px;font-size:12px;color:var(--muted)}
+.byCont b{font-weight:650;color:var(--ink);font-variant-numeric:tabular-nums}
+.byCont i{grid-column:1/-1;height:4px;border-radius:2px;background:var(--hair)}
+.byCont i::after{content:"";display:block;height:100%;width:var(--p);background:var(--visited);border-radius:2px;transition:width .4s var(--ease)}
 .footNote{margin:10px 0 6px;font-size:12px;line-height:1.45}
 .footNote.stale{color:var(--error)}
 .panel footer p{margin:0}

@@ -1,4 +1,4 @@
-// Measure app/ against spec §4.1's code-excluding-comments budget (80 KB).
+// Measure app/ against spec §4.1's code-excluding-comments budget (100 KB).
 // Comments are free — the budget was re-anchored 2026-09-14 specifically so
 // documentation stops competing with the number. Re-run after any change to
 // app/index.html, app/app.js, app/logic.js, or app/styles.css.
@@ -10,7 +10,11 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const APP = join(dirname(fileURLToPath(import.meta.url)), "..", "app");
-const BUDGET = 80 * 1024;
+// 80 -> 100 KB, owner decision 2026-09-15 (spec §4.1 records why). This is the
+// ONE place the ceiling is defined; the message below derives from it rather
+// than repeating the number, which is how the old value came to be written out
+// in five separate documents.
+const BUDGET = 100 * 1024;
 
 const files = [
   ["index.html", (s) => [...s.matchAll(/<!--[\s\S]*?-->/g)]],
@@ -33,7 +37,7 @@ for (const r of rows) console.log(`${r.name.padEnd(12)} ${kb(r.bytes).padStart(6
 const code = total - comments;
 console.log("-".repeat(58));
 console.log(`${"total".padEnd(12)} ${kb(total).padStart(6)} KB total  ${kb(comments).padStart(6)} KB comments  ${kb(code).padStart(6)} KB code`);
-console.log(`\ncode-excluding-comments: ${kb(code)} KB of an 80 KB budget (${kb(BUDGET - code)} KB headroom)`);
+console.log(`\ncode-excluding-comments: ${kb(code)} KB of a ${kb(BUDGET)} KB budget (${kb(BUDGET - code)} KB headroom)`);
 if (code > BUDGET) {
   console.error(`\n⚠ OVER BUDGET by ${kb(code - BUDGET)} KB — see product_spec.md §4.1 before adding more.`);
   process.exitCode = 1;
