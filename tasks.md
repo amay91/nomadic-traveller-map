@@ -32,8 +32,20 @@ Generated from [`plan.md`](./plan.md) §5. **This file is the source of truth fo
 | | D4 Verify the live deployment | ✅ **2026-09-15** — every item green on the real URL |
 | | D5 Custom domain *(optional)* | ⏸ *optional; the github.io URL is a complete answer* |
 | | D6 Point "Email me this map" / the single-file build at the new canonical URL | ✅ **2026-09-15** |
+| 4 Backlog | E1 A visit can be recorded without a year | ⏸ |
+| | E2 The year scrubber — the map through time | ⏸ |
+| | E3 Render F13's continent progress (computed today, then discarded) | ⏸ |
+| | E4 The honest area statistic (% of world land) | ⏸ |
+| | E5 Export the map as an image | ⏸ |
+| | E6 Read-only share links | ⏸ |
+| | E7 Dark theme (F14) | ⏸ |
+| | E8 Compare two maps, with no backend | ⏸ |
+| | E9 Shorter map links (presence bitmap + native `CompressionStream`) | ⏸ **approach decided 2026-09-15 (owner); ~1.6–2.4× shorter, measured** |
+| | *Deliberately not doing: sub-national regions · accounts/sync (L13) · trip planning (G5)* | — |
 
 Legend: ✅ done · 🔄 in progress / in review · ⏸ not started
+
+**⚠ Phase 4 does not fit in the size budget as a whole** — 1.2 KB of headroom remains against §4.1's 80 KB, and E2/E5/E7/E8/E9 are each likely to exceed that alone. See the section's opening note: the ceiling gets raised deliberately, something gets trimmed, or fewer of these ship.
 
 ---
 
@@ -522,3 +534,86 @@ Nothing code-side needs to change (F17 already uses `location.href`, which will 
 
 **✅ DONE 2026-09-15.** `handoff.md` now opens with the live URL and the repo; `README.md`'s placeholder link was replaced with the real one (it was about to greet every visitor to a public repo with `<your-username>`).
 **Decision on `nomadic-traveller-map.html`: KEEP it, as the offline/no-setup fallback.** Nothing code-side needed changing — F17 reads `location.href`, which is now genuinely a real address — but the single file still solves a problem hosting doesn't: using the app with zero network and zero setup, from a copied file. It also remains the fastest way to hand someone the whole app. It stays in the repo and `tools/build-single.mjs` stays with it; re-run that after any change to `app/`, exactly as before.
+
+---
+
+## Phase 4: Backlog *(agreed 2026-09-15, from a full review of the app against spec §1.2's objectives and a comparison with the commercial competition — Been, Visited, Polarsteps, Stampie)*
+
+**Read this first: the whole backlog does not fit in the budget.** §4.1 allows 80 KB of code excluding comments and the app currently sits at **78.8 KB — 1.2 KB of headroom**. E1, E3 and E6 are plausibly small enough to absorb; **E2, E5, E7 and E8 are each likely to need more than the entire remaining margin on their own.** So this list is not a queue to work through — it is a menu that forces a decision the project has now reached twice before (§4.1's own history): raise the ceiling a third time with each new KB traced to a named feature, trim something that has earned less than it costs, or ship fewer of these. **Make that call deliberately before starting E2 or E5, not when `measure-size.mjs` goes red halfway through.** Everything below is ⏸ not started; none of it has a spec F-number yet, since this project assigns those when a feature actually ships.
+
+**The review's framing, kept because it explains the ordering.** The app meets four of its five objectives outright, and O2 (lightweight) and O5 (nothing leaves the device) are met so completely that they are the only two things no competitor can match — Been, Visited and Polarsteps all sync through an account. What the app is weakest at is not correctness but *expression*: it records when you travelled and then shows only where. E1 and E2 attack exactly that, which is why they lead.
+
+### E1 · A visit can be recorded without a year ⏸
+`parseYears("")` returns **"Add at least one year"** (verified directly), so today there is no way to say *I have been there, I don't remember when*. Every competitor in this category is tap-and-move-on. Entering a 60-country backlog in one sitting currently demands 60 remembered years, which in practice produces **guessed** years — worse data than an honest blank, and it quietly corrupts the one thing F27's heatmap counts. The only workaround is mislabelling a place Lived or Home, which breaks the semantics F16 exists to protect. The stored model already tolerates this (`y: []` is exactly what Home and Bucket list use), so this is a validation and display change, not a data change.
+**Accept:** a Visited place can be saved with an empty year field, from both the popover and the entry bar; it displays "—" where years would go, exactly as Home already does; it counts toward "of 195" normally; F27 gives it the 1-visit class; it round-trips through the link, Export and Import unchanged; and the existing error still fires for genuinely invalid input ("20199").
+
+### E2 · The year scrubber — the map through time ⏸
+**The app's own subtitle is "every country you've been to, *and when*," and there is no view of when.** Years are captured, stored, sorted, and then flattened into a single all-time map; the table's Year(s) column is the entire temporal surface. Nothing answers "what did 2019 look like?" A slider across the recorded range, painting only what had been visited by that year, turns data the app already holds into the one feature none of the competition has — Been and Visited both show a lifetime total and stop there. **This is the single most distinctive thing this app could do**, and it needs no new data, no geometry, and no network.
+**Accept:** a control (hidden until at least two distinct years exist) scrubs from the earliest recorded year to the current one; the map repaints to that year's state; the counter and the panel follow it; releasing or dismissing it returns to the all-time view; `prefers-reduced-motion` is honoured; and the scrubbed state is explicitly **not** written into the map link (it is a view, like the heatmap toggle — L16's precedent).
+
+### E3 · Render F13's continent progress ⏸
+`logic.js`'s `stats()` already computes `byContinent` on **every** render and **nothing in `app.js` consumes it** — confirmed by grep: only `count`, `territoryCount` and `bucketCount` are ever destructured. F13 has been in the spec as a "could" since the start; the arithmetic has been shipping and being thrown away. Per-continent coverage is the most standard statistic in this category and every competitor shows it.
+**Accept:** the side panel shows each continent as visited/total (Europe 9/44, …) against §5.1's pinned totals, official countries only per G6, with territories excluded from both halves of the fraction; the numbers agree with the table when filtered by eye; no new computation is added, only consumption of what `stats()` already returns.
+
+### E4 · The honest area statistic ⏸
+"You have stood on X% of the world's land" is a claim **only an equal-area projection can make without lying** — which is precisely the L7 decision this project already paid for, and which every competitor rendering a globe or a Mercator map cannot credibly state. This turns a technical decision buried in `plan.md` into the one number the app can defend better than anyone else's.
+**Accept:** the panel shows a land-area percentage derived from real per-country areas (sourced once at build time into `countries.js`, never computed in the browser — L2's precedent), stated as land area and not "the world" so it cannot be misread; territories are counted separately from the 195 per G6; the number is verified against a published figure for a hand-checked sample before it is shown to anyone.
+
+### E5 · Export the map as an image ⏸
+The map **is** the link, which is elegant engineering and the wrong artifact for the job: people share travel maps as pictures. Been exports branded passport cards, Visited sells printed posters, and this app can produce neither a PNG nor a print — the only way to show someone your map is a ~350-character URL that opens *their* browser onto *your* map, editable. The app's entire output is a picture it cannot hand over. The SVG has no external references of any kind (§4.1: zero network requests), so drawing it to a canvas and downloading cannot taint it and needs no dependency.
+**Accept:** a control produces a PNG of the current map at a sensible resolution, including the visited shading, the labels and the counter, with no network request and no new dependency; it works on the hosted app and from the single-file build; and it is verified on a phone, where the download path differs (L15's lesson — a `content://` context behaves differently, and this must not silently produce nothing).
+
+### E6 · Read-only share links ⏸
+Sharing a map today hands over an editable copy of it: the recipient opens `#m=…`, and anything they change becomes their own map with no indication that they have diverged from yours. A distinct view prefix would let a shared map open as *someone's map*, not *your map, mutable*.
+**Accept:** a `#v=`-style link renders the map with entry, Submit, Remove and Clear suppressed and a clear indication that this is someone else's map, plus an obvious way to make an editable copy of it; `#m=` links behave exactly as they do today; and no existing link in anyone's mailbox changes meaning.
+
+### E7 · Dark theme (F14) ⏸
+There is **no `prefers-color-scheme` anywhere in `app/`** — verified. For an app plausibly opened on a plane or in bed, that is a real gap, and §6.2's palette is already expressed as CSS custom properties, which is most of the work.
+**Accept:** the app follows the system preference; every pair in §4.2's contrast audit is re-measured against the dark palette rather than assumed (the V4-round-2 lesson: check the *rendered* blend, not the token); the heatmap ramp is re-checked for class separation in dark, since F27's ΔE work was done against the light land colour only; and `theme-color` follows.
+
+### E8 · Compare two maps, with no backend ⏸
+**The one genuinely unique feature on this list.** Been gates friend comparison behind an account; this app can do it with zero infrastructure, because both maps already travel *inside their own URLs*. Paste or open two map links and the app can show where you have both been, where only one of you has, and a combined count — a social feature that costs no server, no database and no privacy policy, and breaks none of G1–G3. It is the clearest case of the save-by-link design (L12) being an advantage rather than a workaround.
+**Accept:** two encoded maps can be compared from links alone with nothing stored or transmitted; the comparison is a view that never overwrites either map; the shading distinguishes "both", "only mine", "only theirs" and is checked for colour-vision separation the way F28's indigo was; and it degrades honestly when one link is malformed (F17's decoder already rejects unknown codes).
+
+### E9 · Shorter map links — **approach decided 2026-09-15: presence bitmap + native `CompressionStream`** ⏸
+*(Owner question: "is there some way for unique URLs to just have a short, randomly generated alpha-numeric string instead of the super lengthy URL, sort of like a URL shortener?")*
+
+**The thing to understand first: a URL shortener does not compress, it *stores*.** `bit.ly/x7k2qp` is short because a database somewhere holds the real content and the token is a lookup key. The map's bytes have to exist *somewhere* — in the link, or on a machine someone runs. So "a short random token" and "no server" are mutually exclusive by information theory, not by implementation effort. That is why this is a guardrail decision (G2/G3, L12) rather than a coding task.
+
+**Three real options, with what each actually costs:**
+- **(a) A third-party shortener (bit.ly, TinyURL).** Available today with zero code — the owner can paste a link into one whenever they want. But building it into the app would transmit the complete travel history to a third party that then stores it, which quietly undoes O5 and G3, the app's strongest claim; it also needs a network request at share time (G2) and the links can rot. **Recommendation: never in-app.** Manual use is the owner's own call and costs the project nothing.
+- **(b) Run our own** (a Cloudflare Worker plus KV, free tier). Genuinely short, and technically small. But it is **L13's deferred backend question wearing a different hat**: once there is a keyed store of people's maps, that is accounts-lite, with the privacy policy, deletion path and maintenance §4.6 priced out. L13's written trigger has not fired. **Recommendation: not now — and if it ever happens, it should be decided as *sync*, which is the thing people actually want, not as a URL cosmetic.**
+- **(c) Make the link genuinely shorter with no server.** Measured on realistic maps (1–3 trips per country, years spread over 1995–2025), current encoding vs. a 240-bit presence bitmap (one bit per known place, a fixed ~40 chars however many countries are marked) with years as one byte each offset from 1900, optionally through `CompressionStream('deflate-raw')` — a native browser API, no dependency, no network:
+
+| Countries | Today | Bitmap | Bitmap + deflate |
+|---|---|---|---|
+| 20 | 157 | 119 | 115 |
+| 45 | 355 | 218 | 175 |
+| 80 | 617 | 346 | 252 |
+| 195 | 1,539 | 807 | 528 |
+
+  So the honest ceiling is **roughly 1.6–2.4× shorter** — a 45-country map goes from ~355 characters to ~175. Real, worth having, and still nowhere near `abc123`. *(An earlier measurement suggested far better ratios; it was wrong because the synthetic test maps gave every country identical years, which deflate compresses unrealistically well. The table above uses varied years.)*
+
+**A question worth keeping on the record even though it is now settled: which pain was this?** The link is never typed — it is clicked, bookmarked or mailed, so length matters for looking alarming in a message, for QR codes, and for mail clients mangling long URLs. E5 (share a picture) and E6 (share a read-only link) address "ugly to share" from a different direction and remain worth doing regardless; (c) is not a substitute for either.
+
+**✅ DECIDED 2026-09-15 (owner): take (c) — the presence bitmap through the browser's native `CompressionStream`.** No third party, no server, no dependency, no network request; G1/G2/G3 and L12 all stay intact. What follows is what that choice actually commits us to, recorded now so none of it is discovered halfway through the encoder.
+
+**1. Encode AND decode become asynchronous, and that is the real cost of the last 20%.** `CompressionStream`/`DecompressionStream` are stream APIs; there is no synchronous deflate in a browser without shipping a library, which G1 forbids. Today `syncUrl()` runs synchronously on every change and boot reads the hash synchronously (`visits = Store.load() || {}`). So:
+- **Boot:** a compressed link cannot be decoded before first paint. Either the map renders empty and fills a tick later — a visible flash on precisely the shared-link path this feature exists to serve — or boot awaits the decode and delays first paint. **Pick one deliberately and verify it; do not let it fall out of whatever the code happens to do.**
+- **Writes:** two quick successive edits can resolve out of order and leave the OLDER map in the address bar. Needs a generation counter with last-write-wins — the same class of bug as F22 round 3's label throttle, where a stale async result overwrote a newer one, and it should be fixed the same way rather than rediscovered.
+- **Worth knowing before committing to the async path:** the bitmap alone is synchronous and already gets **1.6×** of the win (355 → 218 chars at 45 countries); deflate on top buys the remaining **~20%** (218 → 175). If the async boot flash proves ugly in practice, bitmap-only is a perfectly good landing place, not a failure.
+
+**2. The fallback is mandatory, not a nicety.** `CompressionStream` needs Safari 16.4+ (March 2023) and Firefox 113+; §4.4 says current browsers and no polyfills, which this satisfies, but an older or locked-down context must still produce a working link. The encoder therefore emits the bitmap-only form when compression is unavailable, and the decoder accepts **three** forms: today's `#m=`, bitmap, and bitmap+deflate. Prefer **one `#m2=` prefix carrying a single-character version marker** over three separate prefixes — fewer entry points to keep alive forever.
+
+**3. ⚠ The bitmap index must NOT be array position.** A presence bitmap over the 240 known places is only meaningful against a fixed index, and if that index is `countries.js`'s array order then **inserting or reordering a single row silently repoints every existing link at the wrong countries** — a data-corruption bug with no error message, affecting links already sent. **Derive the index from the ISO codes sorted lexicographically**, which is stable no matter how the file is edited, and pin it with a test the way §5.1's continent totals are pinned.
+
+**4. The measured table above does not include statuses or periods.** It was built from plain-year maps. The real encoder must also carry Lived/Home/Bucket marks (F16/F28) and `{from, to}` periods including ongoing ones (F21), so true output will be somewhat larger than 175/252/528. **Re-measure against a map exercising all four statuses, a closed period, an ongoing period and an empty-year Home before quoting any number to anyone.**
+
+**5. Budget: this probably breaches §4.1 on its own.** An encoder, a decoder, base64url, bitmap indexing and a fallback path is plausibly 1–1.5 KB of code against **1.2 KB of headroom**. E9 therefore joins E2/E5/E7/E8 as an item forcing the ceiling decision — measure before writing, per this section's opening note.
+
+**Accept:** `#m=` still decodes, forever, and a link saved before this work opens to the identical map (hard requirement — links are already in the owner's mailbox); the bitmap index is derived from sorted ISO codes and pinned by a test; round-trip tests cover all four statuses, closed and ongoing periods, empty-year Home, the bucket mark, an empty map and a full 195-country map, across all three encodings; compression being unavailable is verified by stubbing `CompressionStream` out, not assumed; rapid successive edits are verified to leave the NEWEST map in the address bar; the boot path on a compressed link is verified to never show a silently empty map; and the size cost is measured against §4.1 before the encoder is written and again after.
+
+### Deliberately NOT doing, recorded so it is a decision rather than a drift ⏸
+- **Sub-national regions** (US states, Indian states, prefectures — Been's main depth advantage, 1,000+ subdivisions across 50+ countries). This would multiply `geo.js` well past its 300 KB/90 KB budget, add a second entity model throughout the app, and compete directly on the one axis where a funded consumer app will always win. It is also a different product: this one is about the 195, and F12/G6 spend real effort keeping that number honest. **No.**
+- **Accounts and sync.** L13 governs this and its trigger has not fired — nobody other than the owner has asked for sync or lost a map. The hedges are already paid for (the `Store` seam, a versioned portable blob). **No, until the trigger fires.**
+- **Anything that plans a trip.** G5 — that is Pāntha's job, and a bucket list is the closest this app should ever come to it.
