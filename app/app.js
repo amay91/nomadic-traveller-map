@@ -5,7 +5,7 @@
 // logic.js/countries.js/geo.js all share the same global scope by design.
 const { search, exact, parseYears, esc, highlight, STATUS, yearsOf, statusOf, stats,
         encodeMap, decodeMap, validateImport, latestYear, formatYearsEdit, formatYearsDisplay, mergeYears,
-        isBeen, heatClass, HEAT_BINS } = Logic;
+        isBeen, heatClass, HEAT_BINS, isUpcoming, upcomingYearsOf, UPCOMING_YEARS_AHEAD } = Logic;
 
 const $ = (s) => document.querySelector(s);
 const svg = $("#map");
@@ -56,7 +56,25 @@ const syncUrl = () => Store.save(visits);
 
 /* ── map render ── */
 function renderMap() {
-  let h = `<defs><filter id="lift" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow id="liftShadow" dx="0" dy="1" stdDeviation="1.4" flood-color="#1e2d3c" flood-opacity=".28"/></filter></defs><g id="land">`;
+  // Six hard-stop diagonal gradients for "visited + upcoming" (2026-09-16, the
+  // owner's own spec: "divide the country diagonally in half"), one per heat
+  // colour a visited place can carry (flat classic red, or h1..h5 once the
+  // heatmap is on) — always paired with the upcoming teal on the second stop.
+  // `objectBoundingBox` (the SVG default, so unstated here) means (0,0)->(1,1)
+  // is each SHAPE'S OWN corner-to-corner diagonal, so one gradient works for
+  // every country and dot regardless of its own size or aspect ratio — no
+  // per-country geometry needed. Two stops at the SAME 50% offset is what
+  // makes the edge a hard line rather than a blend.
+  //
+  // No `stop-color` attribute here on purpose, mirroring how #liftShadow's own
+  // flood-color is deliberately left for CSS to set (see its own comment) —
+  // colour stays out of this file entirely. `.stopUp` marks only the SECOND
+  // stop of every gradient, since all six share the identical upcoming colour;
+  // the first stop is addressed per-gradient by id in styles.css.
+  const splitDefs = ["Flat", "H1", "H2", "H3", "H4", "H5"]
+    .map((k) => `<linearGradient id="split${k}"><stop offset="50%"/><stop class="stopUp" offset="50%"/></linearGradient>`)
+    .join("");
+  let h = `<defs><filter id="lift" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow id="liftShadow" dx="0" dy="1" stdDeviation="1.4" flood-color="#1e2d3c" flood-opacity=".28"/></filter>${splitDefs}</defs><g id="land">`;
   for (const [name, d] of GEO.t) h += `<path class="t" data-t="${esc(name)}" d="${d}"/>`;
   for (const iso in GEO.c) h += `<path class="c" data-iso="${iso}" d="${GEO.c[iso]}"/>`;
   h += `</g><g id="dots">`;
@@ -131,6 +149,15 @@ function paint(stagger) {
     if (stagger && rec) e.style.transitionDelay = `${Math.random() * 700}ms`;
     e.classList.toggle("is-visited", isBeen(rec));
     e.classList.toggle("is-bucket", rec?.s === "bucket");
+    // Upcoming (2026-09-16) paints two different ways depending on which of
+    // its two record shapes applies: booked-and-never-been is a flat teal fill
+    // (is-upcoming), while a visited place with a return trip booked (`u`) is
+    // the diagonal split the owner asked for (is-upcoming-split) — it already
+    // owns a heat colour, so teal has to share the shape rather than replace
+    // it. The two classes are mutually exclusive by construction (a record is
+    // either s:"upcoming" or carries `u`, never both — logic.js's model).
+    e.classList.toggle("is-upcoming", rec?.s === "upcoming");
+    e.classList.toggle("is-upcoming-split", typeof rec?.u === "number");
     for (let i = 1; i <= HEAT_BINS.length; i++) e.classList.toggle("h" + i, k === i);
   });
   if (stagger) setTimeout(() => svg.querySelectorAll(".c").forEach((e) => (e.style.transitionDelay = "")), 1400);
@@ -151,10 +178,27 @@ function paint(stagger) {
   svg.querySelectorAll(".lbl").forEach((t) => {
     const rec = visits[t.dataset.iso], k = heatClass(rec);
     const pale = heatOn && (k === 1 || k === 2);
+    const splitUp = typeof rec?.u === "number";
     t.classList.toggle("on-pale", pale);
     t.classList.toggle("is-bucket", rec?.s === "bucket");
+    t.classList.toggle("is-upcoming", rec?.s === "upcoming");
+    t.classList.toggle("is-upcoming-split", splitUp);
     for (let i = 1; i <= HEAT_BINS.length; i++) t.classList.toggle("h" + i, k === i);
-    t.classList.toggle("is-visited", rec?.s === "bucket" || (k > 0 && !pale));
+    t.classList.toggle("is-visited", rec?.s === "bucket" || rec?.s === "upcoming" || (k > 0 && !pale));
+    // A split label needs whichever ink its OWN half needs — measured: no
+    // single ink clears 4.5 against both a heat colour and upcoming teal for
+    // most classes (the same "middle of a lightness scale" trap F27/F34 hit).
+    // The anchor sits on one physical half or the other, computed here from
+    // the SAME diagonal geometry the split gradient itself uses (a linear
+    // gradient from bbox corner (0,0) to (1,1), hard-stopped at 50%): a point
+    // is on the "upcoming" side once (nx+ny) > 1 in the shape's own normalized
+    // bounding box. GEO.a[iso] is [cx,cy,x0,y0,x1,y1] — the exact box the path
+    // itself is drawn against, so this can't drift from what's actually shown.
+    if (splitUp) {
+      const a = GEO.a[t.dataset.iso], bw = a[4] - a[2], bh = a[5] - a[3];
+      const onTeal = bw > 0 && bh > 0 && (a[0] - a[2]) / bw + (a[1] - a[3]) / bh > 1;
+      t.classList.toggle("on-teal-half", onTeal);
+    } else t.classList.remove("on-teal-half");
   });
   renderMarks();
   // Official-195-only, via logic.js's stats() — territories are tracked but
@@ -706,29 +750,57 @@ function paintStatus(row, label, input, s) {
   // Every status except Bucket list now says "— optional" (E1): years being
   // skippable is useless if nothing tells you so, and the field otherwise looks
   // required. Home already read this way; the other two now match it.
+  // Upcoming (2026-09-16) gets its own wording: "visited" is simply the wrong
+  // verb for a trip that hasn't happened, and its years are a BOOKING, not a
+  // memory — the placeholder below matches that too.
   $(label).textContent = s === "bucket" ? "Year(s) — not needed"
+    : s === "upcoming" ? "Year(s) of your trip — optional"
     : (s === "lived" ? "Year(s) lived there" : s === "visited" ? "Year(s) visited" : "Year(s)") + " — optional";
   const inp = $(input);
   inp.placeholder = s === "visited" ? "e.g. 2019, 2023" : s === "bucket" ? "Not needed — you haven't been yet"
-    : "e.g. 2011-2014, or 2023- if ongoing";
+    : s === "upcoming" ? "e.g. 2026" : "e.g. 2011-2014, or 2023- if ongoing";
   // There is no year you haven't been somewhere, so the field steps aside
   // rather than accepting text that would be silently thrown away on save.
   inp.disabled = s === "bucket";
   if (s === "bucket") inp.value = "";
 }
-// Bucket list is only for somewhere you HAVEN'T been. Offering it for a place
-// already on the map would let a single tap convert a visit into a wish and
-// quietly delete its years, so it's disabled there (the other direction —
-// bucket → Visited — is always open: that's the day you finally go).
-function lockBucket(row, iso) {
-  const b = $(`${row} button[data-s="bucket"]`), been = isBeen(visits[iso]);
-  b.disabled = been;
-  b.title = been ? "Already on your map — the bucket list is for places you haven't been yet" : "";
+// Bucket list AND Upcoming are only for somewhere you HAVEN'T been (2026-09-16
+// extends this to the new status: picking Upcoming for an already-visited
+// place would fully replace its record with a bare booking, silently deleting
+// its visit history — the exact hazard already guarded for Bucket list).
+// Offering either for a place already on the map would let a single tap
+// discard real history, so both lock there — the OTHER direction (either one
+// → Visited, or Visited gaining a return trip via #popUpRow) is always open:
+// that's the day you finally go, or go again.
+function lockChips(row, iso) {
+  const been = isBeen(visits[iso]);
+  for (const s of ["bucket", "upcoming"]) {
+    const b = $(`${row} button[data-s="${s}"]`);
+    b.disabled = been;
+    b.title = been ? "Already on your map — that status is for places you haven't been yet" : "";
+  }
 }
 function setStatus(s) {
   pendingStatus = s;
   paintStatus("#popStatus", "#popYearsLabel", "#popYears", s);
+  paintUpRow();
 }
+// The return-trip row (#popUpRow) is visible only while Visited is the active
+// chip — every OTHER status already means "not been," so a second booking on
+// top of it isn't a coherent idea. Switching away clears whatever was pending
+// there, same principle as `paintStatus` clearing the Years field for Bucket:
+// a hidden control's stale value must never sneak into a Submit for a
+// different status.
+function paintUpRow() {
+  const on = pendingStatus === "visited";
+  $("#popUpRow").hidden = !on;
+  if (!on) { $("#popUpToggle").checked = false; $("#popUpYear").hidden = true; $("#popUpYear").value = ""; }
+}
+$("#popUpToggle").onchange = (e) => {
+  $("#popUpYear").hidden = !e.target.checked;
+  if (!e.target.checked) $("#popUpYear").value = "";
+  else setTimeout(() => $("#popUpYear").focus({ preventScroll: true }), 0);
+};
 // The entry bar's own copy of the same state, plus whether the user actually
 // CHOSE it. That second flag is a safety net, not bookkeeping: a country can be
 // resolved without ever going through choose() — typing a full name and pressing
@@ -749,17 +821,27 @@ function openPop(iso) {
   // Lived/Home show their actual period here too — "lived there" alone said
   // nothing a range was even set, which undersold the point of having one.
   // Visited keeps its plain count; a trip count was never about dates.
+  // Upcoming's own note (2026-09-16) reads its year(s) via upcomingYearsOf
+  // rather than `ys`, since a SPLIT record's booked year lives in `u`, not `y`
+  // — and a return trip gets appended to the ordinary visited note rather than
+  // replacing it, since both things are true at once.
+  const upYs = upcomingYearsOf(rec);
   const note = !rec ? "not visited yet"
     : st === "bucket" ? "on your bucket list"
+    : st === "upcoming" ? "upcoming" + (upYs.length ? " · " + formatYearsDisplay(upYs) : "")
     : st === "home" ? "home country" + (ys.length ? " · " + formatYearsDisplay(ys) : "")
     : st === "lived" ? "lived there" + (ys.length ? " · " + formatYearsDisplay(ys) : "")
-    : ys.length ? `visited ${ys.length}×` : "visited"; // "visited 0×" is nonsense for a yearless visit (E1)
+    : (ys.length ? `visited ${ys.length}×` : "visited") + (upYs.length ? ` · return trip booked · ${formatYearsDisplay(upYs)}` : "");
   $("#popMeta").textContent = CONTINENTS[c.cont] + (c.official ? "" : " · Territory") + " · " + note;
   $("#popYears").value = formatYearsEdit(ys);
   $("#popErr").textContent = "";
   $("#popRemove").hidden = !rec;
   setStatus(st);
-  lockBucket("#popStatus", iso);
+  // Prefill the return-trip row from `u`, AFTER setStatus/paintUpRow — that
+  // call already reset and hid it, so this only ever runs for a genuinely
+  // visited record that has one.
+  if (typeof rec?.u === "number") { $("#popUpToggle").checked = true; $("#popUpYear").hidden = false; $("#popUpYear").value = String(rec.u); }
+  lockChips("#popStatus", iso);
   // anchor beside the country's on-screen box
   let r = null;
   els(iso).forEach((e) => { const b = e.getBoundingClientRect(); r = r ? { left: Math.min(r.left, b.left), right: Math.max(r.right, b.right), top: Math.min(r.top, b.top), bottom: Math.max(r.bottom, b.bottom) } : b; });
@@ -815,7 +897,13 @@ $("#popForm").addEventListener("submit", (e) => {
   // "visited continuously from X to Y" isn't a coherent idea the way "lived
   // there from X to Y" is, so Visited keeps its plain-years-only grammar.
   const raw = $("#popYears").value.trim();
-  if (pendingStatus === "bucket" && isBeen(visits[selected])) { $("#popErr").textContent = "Already on your map — the bucket list is for places you haven't been yet"; return; }
+  // Generalized 2026-09-16 to cover Upcoming too — matches lockChips's own
+  // wording for the same guard on the chip itself; this is the ONE path the
+  // disabled chip can't reach (a keyboard Enter submitted before the click
+  // handler re-locks it), so it needs its own check regardless.
+  if ((pendingStatus === "bucket" || pendingStatus === "upcoming") && isBeen(visits[selected])) {
+    $("#popErr").textContent = "Already on your map — that status is for places you haven't been yet"; return;
+  }
   // An EMPTY field now means "no years on file" for every status, not just Home
   // (E1, 2026-09-15). Before this, Visited and Lived refused to save without a
   // year — so "I've been there, I don't remember when" had no way to be said,
@@ -826,10 +914,26 @@ $("#popForm").addEventListener("submit", (e) => {
   // Bucket list have always stored, heatClass() already classes a yearless
   // visit as 1, and encodeMap/decodeMap/validateImport already round-trip it.
   // A non-empty field is still parsed and still rejects a bad token.
+  const thisYear = new Date().getFullYear();
+  // Upcoming's own years are a BOOKING, not a memory: the useful bound runs
+  // the OPPOSITE direction from every other status — not too far ahead
+  // (UPCOMING_YEARS_AHEAD; "imminent," which is what distinguishes it from
+  // Bucket list), and never in the past (a past year there just means a visit).
   const r = pendingStatus === "bucket" || !raw ? { years: [] }
-    : parseYears(raw, new Date().getFullYear(), pendingStatus !== "visited");
+    : pendingStatus === "upcoming" ? parseYears(raw, thisYear + UPCOMING_YEARS_AHEAD, false, thisYear)
+    : parseYears(raw, thisYear, pendingStatus !== "visited");
   if (r.error) { $("#popErr").textContent = r.error; return; }
-  const iso = selected; closePop(); save(iso, r.years, pendingStatus);
+  // The return-trip toggle only ever matters while Visited is the active
+  // chip — paintUpRow() hides and clears it for every other status, so this
+  // branch can't fire outside that case.
+  let upYear;
+  if (pendingStatus === "visited" && $("#popUpToggle").checked) {
+    const ur = parseYears($("#popUpYear").value.trim(), thisYear + UPCOMING_YEARS_AHEAD, false, thisYear);
+    if (ur.error) { $("#popErr").textContent = ur.error; return; }
+    if (ur.years.length !== 1) { $("#popErr").textContent = "Enter a single year for the return trip, e.g. 2027"; return; }
+    upYear = ur.years[0];
+  }
+  const iso = selected; closePop(); save(iso, r.years, pendingStatus, upYear);
   setTimeout(() => selected === iso && select(null), 900);
 });
 $("#popRemove").onclick = () => { const iso = selected; select(null); remove(iso); };
@@ -843,14 +947,20 @@ function toast(msg, undo) {
 }
 $("#undo").onclick = () => { undoFn?.(); $("#toast").classList.remove("show"); };
 function commit(next) { visits = next; paint(); renderRows(); syncUrl(); }
-function save(iso, years, status) {
+// `upYear` (2026-09-16) is only ever passed from the popover's own return-trip
+// toggle — every other caller (the entry bar, choose(), openRow()) simply
+// omits it, which keeps their records shaped exactly as before. It only ever
+// applies to Visited: `u` combined with any other status isn't a shape this
+// app represents (logic.js's validateImport refuses it at the data boundary
+// too, for a hand-edited or imported file).
+function save(iso, years, status, upYear) {
   const prev = structuredClone(visits);
   const s = status ?? statusOf(visits[iso]); // typing in the entry bar never downgrades an existing Home/Lived
-  const rec = s === "visited" ? { y: years } : { y: years, s };
+  const rec = s === "visited" ? (upYear != null ? { y: years, u: upYear } : { y: years }) : { y: years, s };
   commit({ ...visits, [iso]: rec });
   ripple(iso);
   const n = $("#count"); n.classList.remove("bump"); void n.offsetWidth; n.classList.add("bump");
-  const detail = formatYearsDisplay(years) || STATUS[s];
+  const detail = (formatYearsDisplay(years) || STATUS[s]) + (upYear != null ? ` · return trip ${upYear}` : "");
   toast(`${PLACE.get(iso).name} ${prev[iso] ? "updated" : "added"} · ${detail}`, () => commit(prev));
 }
 function remove(iso) {
@@ -910,14 +1020,14 @@ function choose(iso) {
   // than the missing choice it was added to fix, since the old code at least
   // preserved an existing status. Changing it is now a deliberate act.
   setBarStatus(statusOf(visits[iso]));
-  lockBucket("#barStatus", iso);
+  lockChips("#barStatus", iso);
   closePop(); select(iso, false); flyTo(iso);
   yIn.focus();
 }
 // Retyping the country abandons the previous one, so the status it carried must
 // go with it — otherwise picking India (Home), then clearing and typing Japan,
 // would leave "Home" selected and quietly file Japan as a home country.
-cIn.addEventListener("input", () => { chosen = null; setBarStatus("visited"); lockBucket("#barStatus", null); opts = search(cIn.value, PLACES); active = opts.length ? 0 : -1; showErr(""); renderList(); });
+cIn.addEventListener("input", () => { chosen = null; setBarStatus("visited"); lockChips("#barStatus", null); opts = search(cIn.value, PLACES); active = opts.length ? 0 : -1; showErr(""); renderList(); });
 cIn.addEventListener("keydown", (e) => {
   if (!list.classList.contains("open")) return;
   if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); if (opts.length) { active = (active + (e.key === "ArrowDown" ? 1 : -1) + opts.length) % opts.length; renderList(); } }
@@ -927,7 +1037,7 @@ cIn.addEventListener("keydown", (e) => {
 // Typing a full country name and clicking away resolves it here, without ever
 // going through choose() — so the picker has to be brought in line here too, or
 // it would show "Visited" for a country the app still holds as Home.
-cIn.addEventListener("blur", () => setTimeout(() => { closeList(); if (!chosen) { const iso = exact(cIn.value, PLACES); if (iso) { chosen = iso; if (!barStatusTouched) setBarStatus(statusOf(visits[iso])); lockBucket("#barStatus", iso); } } }, 120));
+cIn.addEventListener("blur", () => setTimeout(() => { closeList(); if (!chosen) { const iso = exact(cIn.value, PLACES); if (iso) { chosen = iso; if (!barStatusTouched) setBarStatus(statusOf(visits[iso])); lockChips("#barStatus", iso); } } }, 120));
 cIn.addEventListener("focus", () => { if (cIn.value && !chosen) renderList(); });
 list.addEventListener("mousedown", (e) => { e.preventDefault(); const li = e.target.closest("li[data-iso]"); if (li) choose(li.dataset.iso); });
 function showErr(msg) {
@@ -989,10 +1099,17 @@ bar.addEventListener("submit", (e) => {
   // silently preserved an existing status and could never assign one.
   const rec = visits[iso], existingStatus = statusOf(rec);
   const s = barStatusTouched ? barStatus : existingStatus;
-  // Guard the one path the disabled button can't: picking Bucket list, then
-  // typing a place that's already on the map and submitting straight away.
-  if (s === "bucket" && isBeen(rec)) { showErr(`${PLACE.get(iso).name} is already on your map — the bucket list is for places you haven't been yet`); return; }
-  const r = s === "bucket" || !raw ? { years: [] } : parseYears(raw, new Date().getFullYear(), s !== "visited"); // empty = no years, any status (E1 — see the popover's own submit)
+  // Guard the one path the disabled button can't: picking Bucket list or
+  // Upcoming, then typing a place that's already on the map and submitting
+  // straight away. Generalized 2026-09-16 to cover both — same wording as
+  // lockChips uses for the chip itself and the popover's own equivalent guard.
+  if ((s === "bucket" || s === "upcoming") && isBeen(rec)) { showErr(`${PLACE.get(iso).name} is already on your map — that status is for places you haven't been yet`); return; }
+  const thisYear = new Date().getFullYear();
+  // Upcoming's years run the opposite bound from every other status — see the
+  // popover's own submit handler for the full reasoning (UPCOMING_YEARS_AHEAD).
+  const r = s === "bucket" || !raw ? { years: [] }
+    : s === "upcoming" ? parseYears(raw, thisYear + UPCOMING_YEARS_AHEAD, false, thisYear)
+    : parseYears(raw, thisYear, s !== "visited"); // empty = no years, any status (E1 — see the popover's own submit)
   if (r.error) { showErr(r.error); yIn.focus(); return; }
   // ADD to what's already recorded rather than replace it (owner report,
   // 2026-09-15): typing a country a second time to fill in a year forgotten the
@@ -1006,7 +1123,15 @@ bar.addEventListener("submit", (e) => {
   // switch can't leave old- and new-shaped entries mixed in one record.
   const years = rec && s === existingStatus ? mergeYears(yearsOf(rec), r.years) : r.years;
   if (selected !== iso) { select(iso, false); flyTo(iso); }
-  save(iso, years, s);
+  // The entry bar has no UI to SET or clear a return trip (#popUpRow is
+  // popover-only, by design — see its own comment), but it must not silently
+  // DESTROY one either: without this, retyping an already-visited country here
+  // to add one more year would drop any `u` the popover had set, since save()
+  // otherwise treats a missing upYear as "none". Only carried through while
+  // staying Visited — switching status away from Visited already drops `u`
+  // in save() regardless of what's passed here, which is correct: `u` isn't a
+  // coherent idea for any other status.
+  save(iso, years, s, s === "visited" ? rec?.u : undefined);
   cIn.value = ""; yIn.value = ""; chosen = null; showErr(""); setBarStatus("visited");
   if (phone()) closeBar(); // hand the map back the screen as soon as the work is done
   setTimeout(() => selected === iso && select(null), 900);
@@ -1028,20 +1153,30 @@ function renderRows(enter) {
     // "# times" only means something for a visit — for somewhere you live or
     // are from, a count of years-present isn't a count of trips.
     return { iso, name: c.name, official: c.official, ys, st, heat: heatClass(rec), times: st === "visited" && ys.length ? ys.length : null,
-             cont: CONTINENTS[c.cont], last: latestYear(ys) };
+             cont: CONTINENTS[c.cont], last: latestYear(ys), up: upcomingYearsOf(rec) };
   });
   const key = { name: (r) => r.name, years: (r) => r.last, times: (r) => r.times, cont: (r) => r.cont }[sort.col];
   rows.sort((a, b) => { const x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir || a.name.localeCompare(b.name); });
-  // Places you've been first, then the bucket list as its own group — it's a
-  // different list (somewhere you HAVEN'T been), so it never interleaves with
-  // the visits whatever the sort, and never counts in the total below.
-  const been = rows.filter((r) => r.st !== "bucket"), wish = rows.filter((r) => r.st === "bucket");
-  const row = (r, i) => `<tr data-iso="${r.iso}" style="--i:${i}" tabindex="0" aria-label="${esc(r.name)}, ${r.st === "bucket" ? "on your bucket list, " : ""}edit or remove"><td class="name"><i class="${r.st} h${r.heat}"></i>${esc(r.name)}${r.st === "visited" ? "" : `<span class="tbadge on ${r.st}">${STATUS[r.st]}</span>`}${r.official ? "" : '<span class="tbadge">Territory</span>'}</td><td class="num">${formatYearsDisplay(r.ys) || "<span class=muted>—</span>"}</td><td class="r num">${r.times ?? "<span class=muted>—</span>"}</td><td class="muted cont">${r.cont}</td></tr>`;
+  // Three groups, not two, since 2026-09-16: places you've been, then Upcoming
+  // trips (booked but never been — a different list from Bucket, so it never
+  // interleaves with the visits whatever the sort, and never counts in the
+  // total below, same principle bucket already established), then Bucket
+  // list itself. A visited place WITH a return trip booked (`u`) stays in
+  // `been` — it's still somewhere you've actually been — and gets a badge on
+  // its own row instead (below) rather than a group of its own.
+  const been = rows.filter((r) => r.st !== "bucket" && r.st !== "upcoming");
+  const booked = rows.filter((r) => r.st === "upcoming");
+  const wish = rows.filter((r) => r.st === "bucket");
+  const noteOf = (r) => r.st === "bucket" ? "on your bucket list, "
+    : r.st === "upcoming" ? "an upcoming trip, "
+    : r.st === "visited" && r.up.length ? "with a return trip booked, " : "";
+  const row = (r, i) => `<tr data-iso="${r.iso}" style="--i:${i}" tabindex="0" aria-label="${esc(r.name)}, ${noteOf(r)}edit or remove"><td class="name"><i class="${r.st} h${r.heat}"></i>${esc(r.name)}${r.st === "visited" ? "" : `<span class="tbadge on ${r.st}">${STATUS[r.st]}</span>`}${r.st === "visited" && r.up.length ? `<span class="tbadge on upcoming">Upcoming · ${formatYearsDisplay(r.up)}</span>` : ""}${r.official ? "" : '<span class="tbadge">Territory</span>'}</td><td class="num">${formatYearsDisplay(r.ys) || "<span class=muted>—</span>"}</td><td class="r num">${r.times ?? "<span class=muted>—</span>"}</td><td class="muted cont">${r.cont}</td></tr>`;
   const tb = $("#rows");
   tb.innerHTML = been.map(row).join("")
-    + (wish.length ? `<tr class="grp"><td colspan="4">Bucket list · ${wish.length}</td></tr>` + wish.map((r, i) => row(r, been.length + i)).join("") : "");
+    + (booked.length ? `<tr class="grp grp-upcoming"><td colspan="4">Upcoming trips · ${booked.length}</td></tr>` + booked.map((r, i) => row(r, been.length + i)).join("") : "")
+    + (wish.length ? `<tr class="grp grp-bucket"><td colspan="4">Bucket list · ${wish.length}</td></tr>` + wish.map((r, i) => row(r, been.length + booked.length + i)).join("") : "");
   if (enter && !reduce.matches) { tb.classList.remove("enter"); void tb.offsetWidth; tb.classList.add("enter"); }
-  const { count: n, territoryCount: nt, bucketCount: nb, byContinent: bc } = stats(visits, placeOf);
+  const { count: n, territoryCount: nt, bucketCount: nb, upcomingCount: nu, byContinent: bc } = stats(visits, placeOf);
   $("#pCount").textContent = n;
   // F13, shipped at last (E3). stats() has computed byContinent on every render
   // since the beginning and NOTHING consumed it — the arithmetic was being done
@@ -1060,6 +1195,7 @@ function renderRows(enter) {
   }).join("");
   $("#total").innerHTML = `Total &nbsp;<b class="num">${n}</b> of 195 countries <span class="muted">· ${((n / 195) * 100).toFixed(1)}%</span>`
     + (nt ? ` <span class="muted">· +${nt} ${nt === 1 ? "territory" : "territories"} visited</span>` : "")
+    + (nu ? ` <span class="muted">· ${nu} upcoming ${nu === 1 ? "trip" : "trips"}</span>` : "")
     + (nb ? ` <span class="muted">· ${nb} on your bucket list</span>` : "");
   $("#empty").hidden = rows.length > 0;
   document.querySelectorAll("th[data-col]").forEach((th) => th.dataset.col === sort.col ? th.setAttribute("aria-sort", sort.dir > 0 ? "ascending" : "descending") : th.removeAttribute("aria-sort"));

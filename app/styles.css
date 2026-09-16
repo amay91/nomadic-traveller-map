@@ -29,6 +29,16 @@
      tritanopia). */
   --h1:#EFAA9B; --h2:#DE7C69; --h3:#B84834; --h4:#9C311E; --h5:#6D1D0F;
   --bucket:#4C579B; --lbl-pale:#231A13; --lbl-light:#FFFFFF;
+  /* Upcoming (2026-09-16): teal, chosen the same way bucket's indigo was —
+     scored against every existing colour (land, water, the five heat classes,
+     classic visited red, AND bucket itself) under simulated deutan/protan/
+     tritan vision, worst case ΔE2000 10.6 here (bucket's own worst case: 12.3).
+     --upcoming is the MAP FILL; --upcoming-ink is a separately darkened value
+     for TEXT (table badges, the legend swatch, the pressed chip) — the fill
+     alone measures only 4.20:1 as text on white, which fails 4.5, the same
+     --panel/--on-ink split E7 needed and for the same reason: one colour
+     can't serve a surface a reader looks AT and text they have to READ. */
+  --upcoming:#00816E; --upcoming-ink:#00744E;
   --ink:#2B3640; --muted:#55636E; --hair:#E3E8EC; --surface:rgba(255,255,255,.92); --error:#A94F3A;
   /* Semantic tokens for what used to be hardcoded (19 separate `#fff`s among
      them). The split that matters: --panel is a SURFACE and inverts in dark,
@@ -111,6 +121,23 @@ button{cursor:pointer}
    h1 9.22, h2 6.21, h3 4.51, h4 5.58, h5 8.03. */
 body:not(.heat-off) .lbl.h1,body:not(.heat-off) .lbl.h2{fill:var(--lbl-pale)}
 body:not(.heat-off) .lbl.h3,body:not(.heat-off) .lbl.h4,body:not(.heat-off) .lbl.h5{fill:var(--lbl-light)}
+/* Upcoming's flat teal takes light ink here (measured 4.5:1 at the rendered
+   .95 — the thinnest margin any colour in this app ships with, a consequence
+   of teal sitting in the exact mid-lightness band no ink clears comfortably;
+   .lbl.is-visited already sets this by default, so this line is belt-and-
+   braces against that base rule ever changing under it). */
+.lbl.is-upcoming{fill:var(--lbl-light)}
+/* Split labels ("visited + upcoming"): NO single ink clears 4.5 against both
+   halves for most heat classes — measured directly, not assumed (e.g. light
+   h1's pale ink is 8.1 on the heat side but only 3.4 on teal; teal itself
+   only clears 4.5 with LIGHT ink, opposite of what h1 needs). So the anchor's
+   OWN side decides (on-teal-half, computed in app.js from the same diagonal
+   the split gradient itself uses) rather than trying to pick one ink for a
+   label that can sit on either colour. Specificity is deliberately generous
+   (4-5 classes, an unnecessary margin over what's needed to win) so this
+   can't silently lose to a future heat-ink rule added above it. */
+.lbl.is-upcoming-split.on-teal-half{fill:var(--lbl-light)}
+body:not(.heat-off) .lbl.is-upcoming-split.on-teal-half{fill:var(--lbl-light)}
 /* --f carries the fill so hover can darken whatever shade a place has with one
    rule, instead of a hand-picked hover colour per class. */
 .c.is-visited{--f:var(--visited);fill:var(--f)}
@@ -120,14 +147,45 @@ body:not(.heat-off) .c.h3{--f:var(--h3)}
 body:not(.heat-off) .c.h4{--f:var(--h4)}
 body:not(.heat-off) .c.h5{--f:var(--h5)}
 .c.is-bucket{--f:var(--bucket);fill:var(--f)}
-.c.is-visited:hover,.c.is-bucket:hover{fill:color-mix(in oklab,var(--f) 84%,var(--hover-mix))}
+.c.is-upcoming{--f:var(--upcoming);fill:var(--f)}
+.c.is-visited:hover,.c.is-bucket:hover,.c.is-upcoming:hover{fill:color-mix(in oklab,var(--f) 84%,var(--hover-mix))}
+/* Split fill — "visited + upcoming" (owner, 2026-09-16: "divide the country
+   diagonally in half"). Six gradients, one per heat colour a visited place can
+   carry (defined in app.js's <defs>, coloured here — see that comment for why
+   colour lives in CSS and not the SVG string); every one pairs that colour
+   with --upcoming on a hard 50% stop, so the split always lands exactly on
+   the shape's own bounding-box diagonal regardless of its size or aspect.
+   `.stopUp` marks only the SECOND stop of every gradient, since all six share
+   the identical upcoming colour — one shared rule instead of six duplicates. */
+.stopUp{stop-color:var(--upcoming)}
+#splitFlat stop:first-child{stop-color:var(--visited)}
+#splitH1 stop:first-child{stop-color:var(--h1)}
+#splitH2 stop:first-child{stop-color:var(--h2)}
+#splitH3 stop:first-child{stop-color:var(--h3)}
+#splitH4 stop:first-child{stop-color:var(--h4)}
+#splitH5 stop:first-child{stop-color:var(--h5)}
+/* Same specificity as .c.is-visited — the flat/heat-off case — so SOURCE
+   ORDER decides; placed after it, so it wins whenever both would apply. The
+   h1..h5 variants don't have this problem: `body:not(.heat-off)` already
+   outranks the plain .is-visited rule on its own, the same way the ordinary
+   --f overrides above do. Hover is deliberately NOT special-cased here: it
+   falls through to the SAME rule as a flat visited fill, darkening whatever
+   --f still holds (the heat/visited half's own colour) — a minor, accepted
+   simplification rather than a second set of "hover the whole gradient" defs
+   for a state that lasts only as long as the pointer sits still. */
+.c.is-upcoming-split{fill:url(#splitFlat)}
+body:not(.heat-off) .c.is-upcoming-split.h1{fill:url(#splitH1)}
+body:not(.heat-off) .c.is-upcoming-split.h2{fill:url(#splitH2)}
+body:not(.heat-off) .c.is-upcoming-split.h3{fill:url(#splitH3)}
+body:not(.heat-off) .c.is-upcoming-split.h4{fill:url(#splitH4)}
+body:not(.heat-off) .c.is-upcoming-split.h5{fill:url(#splitH5)}
 .c.is-selected{transform:scale(1.06);filter:url(#lift)}
 /* The lift shadow's colour is a presentation attribute in app.js's <defs>; a CSS
    flood-color overrides it, which keeps the one palette-dependent value in that
    SVG string out of the JS and in here with every other colour. A near-black
    drop shadow is invisible on a dark map, so dark swaps it (see Atlas Night). */
 #liftShadow{flood-color:var(--lift-flood)}
-.c.is-selected:not(.is-visited):not(.is-bucket){fill:var(--land-hi)}
+.c.is-selected:not(.is-visited):not(.is-bucket):not(.is-upcoming){fill:var(--land-hi)}
 .dot.is-selected{transform:scale(1.7)}
 .ripple{fill:none;stroke:var(--visited);stroke-width:2.5px;vector-effect:non-scaling-stroke;pointer-events:none;
   transform-box:fill-box;transform-origin:center;animation:ripple .7s var(--ease) forwards}
@@ -244,6 +302,13 @@ body:not(.heat-off) .c.h5{--f:var(--h5)}
 .statusRow button{border:0;background:transparent;border-radius:7px;padding:6px 0;font-size:12.5px;color:var(--muted);transition:background .15s,color .15s}
 .statusRow button:hover{color:var(--ink)}
 .statusRow button[aria-pressed=true]{background:var(--panel);color:var(--ink);font-weight:650;box-shadow:0 1px 2px var(--shadow-tint)}
+/* The return-trip row (#popUpRow, 2026-09-16) — popover-only, see its own
+   HTML comment for why. Sits in the same rhythm as the rest of the form:
+   label sizing matches .pop label, the year input matches .pop input. */
+.upRow{margin:0 0 12px;display:flex;flex-direction:column;gap:6px}
+.upToggle{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--ink);cursor:pointer;user-select:none}
+.upToggle input{margin:0;width:15px;height:15px;accent-color:var(--upcoming-ink);cursor:pointer}
+#popUpYear{margin-top:0}
 .pop .row{display:flex;justify-content:space-between;align-items:center;gap:14px}
 .pop .btn{min-height:40px}
 .x{position:absolute;top:10px;right:10px;width:28px;height:28px;border:0;border-radius:50%;background:transparent;color:var(--muted);font-size:18px;line-height:1}
@@ -303,8 +368,11 @@ body:not(.heat-off) td.name i.h4{background:var(--h4)}
 body:not(.heat-off) td.name i.h5:not(.lived){background:var(--h5)}
 td.name i.bucket{background:var(--bucket)}
 .tbadge.on.bucket{border-color:var(--bucket);color:var(--bucket)}
+.tbadge.on.upcoming{border-color:var(--upcoming-ink);color:var(--upcoming-ink)}
 tr.grp,tr.grp:hover{cursor:default;background:none}
-tr.grp td{padding:16px 12px 6px;font-size:11px;font-weight:650;letter-spacing:.3px;text-transform:uppercase;color:var(--bucket)}
+tr.grp td{padding:16px 12px 6px;font-size:11px;font-weight:650;letter-spacing:.3px;text-transform:uppercase}
+tr.grp-bucket td{color:var(--bucket)}
+tr.grp-upcoming td{color:var(--upcoming-ink)}
 
 /* Lived/Home are marked with a small ink glyph at the place's centre, not a
    third and fourth fill colour — the palette stays water + land + visited. */
@@ -317,6 +385,7 @@ body:not(.heat-off) .mk{stroke:var(--mk-contrast)}
 body:not(.heat-off) .mk-home{fill:var(--mk-contrast);stroke:var(--ink)}
 .statusRow button:disabled{opacity:.35;cursor:not-allowed}
 .statusRow button[data-s=bucket][aria-pressed=true]{color:var(--bucket)}
+.statusRow button[data-s=upcoming][aria-pressed=true]{color:var(--upcoming-ink)}
 .field input:disabled,.pop input:disabled{opacity:.55;cursor:not-allowed}
 
 /* ── map key (prototype 2026-09-15) ──
@@ -354,6 +423,8 @@ body:not(.heat-off) .mk-home{fill:var(--mk-contrast);stroke:var(--ink)}
 .lgSw{display:inline-block;width:14px;height:14px;border-radius:3px;flex:none}
 .lgBucket{display:flex;align-items:center;gap:6px;color:var(--ink);font-weight:600}
 .lgBucket .lgSw{background:var(--bucket)}
+.lgUpcoming{display:flex;align-items:center;gap:6px;color:var(--ink);font-weight:600}
+.lgUpcoming .lgSw{background:var(--upcoming)}
 .lgFlat{display:none;align-items:center;gap:6px;color:var(--ink);font-weight:600}
 .lgFlat .lgSw{background:var(--visited)}
 .heat-off .lgRamp,.heat-off .lgTitle{display:none}
@@ -675,6 +746,11 @@ tfoot b{font-size:16px}
     --dot:#6E6454; --border-line:#B8AA97; --lbl-ink:#F5EFE4;
     --h1:#7B221B; --h2:#9B3E32; --h3:#B65547; --h4:#DF7968; --h5:#FF9C89;
     --bucket:#7E8AD8; --lbl-pale:#1E1710; --lbl-light:#FFFFFF;
+    /* One value for both roles here, unlike light — measured: #7CD6C9 clears
+       10.09:1 as TEXT on the dark panel, comfortably past 4.5, so the fill/ink
+       split light needed (its fill fails as text at only 4.20:1) isn't needed
+       a second time; land-separation 4.8, worst-case CVD ΔE2000 16.1. */
+    --upcoming:#7CD6C9; --upcoming-ink:#7CD6C9;
     --ink:#E7EBEF; --muted:#A6B1BB; --hair:#2C3742; --surface:rgba(22,31,40,.92); --error:#FF9077;
     --panel:#141C24; --on-ink:#101820; --subtle:#1F2A34; --subtle-2:#27333E; --row-line:#222D37;
     --placeholder:#8A96A2; --btn-hover:#CFD6DC; --focus-ring:#46545F; --disabled:#4A5763;
@@ -688,6 +764,13 @@ tfoot b{font-size:16px}
 /* Bucket indigo is light enough in dark mode that white text on it fails
    (3.07) while deep ink clears comfortably (5.16) — measured, not assumed. */
 [data-theme=dark] .lbl.is-bucket{fill:var(--lbl-pale)}
+/* Upcoming's dark teal needs DEEP ink (9.5:1) — the opposite of light's own
+   teal, which needed light ink; same reasoning as the ramp inversion above,
+   just for one more colour. See the light rules for the split (on-teal-half)
+   case's own reasoning — it inverts here for the identical reason. */
+[data-theme=dark] .lbl.is-upcoming{fill:var(--lbl-pale)}
+[data-theme=dark] .lbl.is-upcoming-split.on-teal-half{fill:var(--lbl-pale)}
+[data-theme=dark] body:not(.heat-off) .lbl.is-upcoming-split.on-teal-half{fill:var(--lbl-pale)}
 /* The legend swatches carry the same ramp, so their text has to flip the same
    way the map labels do, or the key becomes the one unreadable thing on it. */
 [data-theme=dark] .lgRamp .h1,[data-theme=dark] .lgRamp .h2{color:var(--lbl-light)}

@@ -19,7 +19,7 @@ const load = (f) => {
 };
 const { COUNTRIES, TERRITORIES, CONTINENTS } = load("countries.js");
 const { Logic } = load("logic.js");
-const { search, exact, parseYears, highlight, esc, stats, encodeMap, decodeMap, validateImport, yearsOf, statusOf, STATUS, latestYear, formatYearsEdit, formatYearsDisplay, mergeYears, heatClass, HEAT_BINS, isBeen } = Logic;
+const { search, exact, parseYears, highlight, esc, stats, encodeMap, decodeMap, validateImport, yearsOf, statusOf, STATUS, latestYear, formatYearsEdit, formatYearsDisplay, mergeYears, heatClass, HEAT_BINS, isBeen, isUpcoming, upcomingYearsOf } = Logic;
 
 const PLACES = [
   ...COUNTRIES.map((c) => ({ iso: c[0], name: c[2], cont: c[3], aliases: c.slice(4), official: true })),
@@ -92,6 +92,13 @@ test("parseYears: periods, only when allowRange is set (Lived/Home, spec F16 ext
   assert.match(parseYears("2011-2030", 2026, true).error, /outside/, "the end year can't be past maxYear either");
   assert.match(parseYears("2011-2014-2016", 2026, true).error, /isn't a year or a period/);
   assert.match(parseYears("2019-2020", 2026, false).error, /isn't a year\./, "allowRange still off by default — Visited's own wording is untouched");
+});
+
+test("parseYears: minYear (added for Upcoming, 2026-09-16) — every existing caller is unaffected by its default", () => {
+  assert.deepEqual(j(parseYears("2019", 2026)), { years: [2019] }, "no minYear argument: identical to before, floor stays 1900");
+  assert.deepEqual(j(parseYears("2027", 2031, false, 2026)), { years: [2027] }, "a future window: 2027 is within [2026,2031]");
+  assert.match(parseYears("2019", 2031, false, 2026).error, /outside 2026–2031/, "a PAST year is refused once minYear is raised — the exact bound a booking can't precede");
+  assert.match(parseYears("2050", 2031, false, 2026).error, /outside 2026–2031/, "and the ceiling still applies — not just the floor");
 });
 
 test("parseYears: round-trips through formatYearsEdit exactly, including mixed and ongoing entries", () => {
@@ -218,6 +225,76 @@ test("a visit with no years counts, shades and round-trips like any other (E1)",
     { JPN: { y: [] } },
     "Import accepts it rather than rejecting the whole file",
   );
+});
+
+// "Upcoming" (2026-09-16, owner: a trip already booked, distinct from a bucket
+// -list wish). It is the one status that can coexist with another, so it has
+// TWO stored representations — s:"upcoming" for booked-but-never-been (the
+// booked year(s) in `y`), and a `u` field holding the booked YEAR riding on a
+// Visited record for "been, and going again". `u` is a year, not a boolean:
+// putting the future trip inside the same `y` array as real past visits would
+// silently count a trip that hasn't happened yet, inflating both "# times
+// visited" and the heatmap shade before it occurs — caught designing this,
+// not after shipping it, which is exactly why it's pinned here.
+const thisYear = new Date().getFullYear();
+test("upcoming: booked-but-not-been stays out of the 195, visited+upcoming still counts", () => {
+  const visits = {
+    MAR: { y: [thisYear + 1], s: "upcoming" }, // booked, never been
+    JPN: { y: [2019], u: thisYear + 1 },       // been once, a return trip booked
+    PER: { y: [2015] },                        // a plain visit
+    NZL: { y: [], s: "bucket" },               // a wish, not a booking
+  };
+  const s = stats(visits, placeOf);
+  assert.equal(s.count, 2, "JPN + PER count; MAR is booked but not been, NZL is only a wish");
+  assert.equal(s.upcomingCount, 2, "both kinds of upcoming are counted — MAR and JPN");
+  assert.equal(s.bucketCount, 1, "and a booking is never mistaken for a bucket-list entry");
+  assert.equal(s.byContinent.AF ?? 0, 0, "a booked-but-not-been place never lands in a continent tally");
+  assert.ok(!isBeen(visits.MAR), "booked is not been");
+  assert.ok(isBeen(visits.JPN), "been, with a return trip booked, is still been");
+  assert.ok(isUpcoming(visits.MAR) && isUpcoming(visits.JPN), "both forms read as upcoming");
+  assert.ok(!isUpcoming(visits.NZL), "a bucket-list wish is not a booking");
+  assert.equal(heatClass(visits.MAR), 0, "booked-but-not-been takes no heat shade");
+  assert.equal(heatClass(visits.JPN), 1, "a visited record keeps the shade ITS PAST VISITS earned — the booked trip doesn't count yet");
+  assert.deepEqual(j(upcomingYearsOf(visits.MAR)), [thisYear + 1]);
+  assert.deepEqual(j(upcomingYearsOf(visits.JPN)), [thisYear + 1], "reads the booked year regardless of which of the two shapes holds it");
+  assert.deepEqual(j(upcomingYearsOf(visits.PER)), []);
+});
+
+test("upcoming round-trips through the link, and every older mark still decodes", () => {
+  const visits = { MAR: { y: [thisYear + 1], s: "upcoming" }, JPN: { y: [2019, 2023], u: thisYear + 2 }, NZL: { y: [], s: "bucket" } };
+  const code = encodeMap(visits);
+  assert.match(code, /MAR__/, "upcoming is two underscores");
+  assert.match(code, /JPN___/, "visited + upcoming is three");
+  assert.match(code, /NZL_/, "bucket stays one");
+  assert.deepEqual(j(decodeMap(code, isKnown)), visits);
+  // Links already sitting in mailboxes must keep working — F17's hard rule.
+  assert.deepEqual(j(decodeMap("NZL_-IND*-GBR!3c", isKnown)),
+    { NZL: { y: [], s: "bucket" }, IND: { y: [], s: "home" }, GBR: { y: [2020], s: "lived" } },
+    "a link written before upcoming existed decodes exactly as it always did");
+});
+
+test("upcoming years: within the imminent window, not the distant future; decode stays liberal once a trip's date has passed", () => {
+  // The entry UI enforces "not too far out" (parseYears' own bound); a decoded
+  // link is allowed to be MORE liberal, because a link saved while a trip was
+  // still upcoming must keep decoding correctly after that date quietly passes.
+  const iso = "MAR", farFuture = thisYear + 20;
+  assert.ok(validateImport({ v: 1, visits: { [iso]: { y: [farFuture], s: "upcoming" } } }, isKnown).error,
+    "a booking 20 years out is refused — that's what Bucket list is for");
+  assert.ok(validateImport({ v: 1, visits: { [iso]: { y: [2019], u: farFuture } } }, isKnown).error,
+    "same bound applies to the split form's own booked year");
+  // A trip booked for last year (relative to "now") still decodes — the link
+  // doesn't become corrupt just because time passed it.
+  const stale = decodeMap(`${iso}__${(thisYear - 1 - 1900).toString(36).padStart(2, "0")}`, isKnown);
+  assert.deepEqual(j(stale[iso].y), [thisYear - 1], "a link whose booked trip has already passed still decodes, not silently dropped");
+});
+
+test("validateImport: accepts upcoming, refuses the combinations the model forbids", () => {
+  const ok = validateImport({ v: 1, visits: { MAR: { y: [thisYear + 1], s: "upcoming" }, JPN: { y: [2019], u: thisYear + 1 } } }, isKnown);
+  assert.deepEqual(j(ok.visits), { MAR: { y: [thisYear + 1], s: "upcoming" }, JPN: { y: [2019], u: thisYear + 1 } });
+  assert.ok(validateImport({ v: 1, visits: { JPN: { y: [2019], s: "lived", u: thisYear + 1 } } }, isKnown).error, "Lived + upcoming is refused, not silently halved");
+  assert.ok(validateImport({ v: 1, visits: { JPN: { y: [], s: "bucket", u: thisYear + 1 } } }, isKnown).error, "Bucket + upcoming is refused");
+  assert.ok(validateImport({ v: 1, visits: { JPN: { y: [2019], u: 1 } } }, isKnown).error, "u must be a real year, not a boolean-ish 1");
+  assert.ok(validateImport({ v: 1, visits: { JPN: { y: [2019], u: 1899 } } }, isKnown).error, "u out of range is refused");
 });
 
 test("encodeMap/decodeMap: lossless round-trip, including status and empty-years Home", () => {

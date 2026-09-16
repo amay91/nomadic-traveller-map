@@ -68,21 +68,26 @@ function exact(q, places) {
 // All-or-nothing: the first bad token names itself in the error and nothing
 // is returned as partially valid. A parsed entry is a plain `number` for a
 // single year, or `{from, to}` for a period — `to` is `null` for "ongoing".
-function parseYears(s, maxYear = new Date().getFullYear(), allowRange = false) {
+// `minYear` (added 2026-09-16 for Upcoming) defaults to 1900 — every existing
+// caller is unaffected. Upcoming is the one status where the USEFUL bound is
+// the other direction: a booking can't be in the past (that's just a visit),
+// so its caller passes `minYear` as this year and `maxYear` as a few years out
+// instead of leaving 1900 as the floor.
+function parseYears(s, maxYear = new Date().getFullYear(), allowRange = false, minYear = 1900) {
   const toks = (s || "").split(/[\s,;]+/).filter(Boolean);
   if (!toks.length) return { error: "Add at least one year, e.g. 2019" };
-  const inRange = (y) => y >= 1900 && y <= maxYear;
+  const inRange = (y) => y >= minYear && y <= maxYear;
   const years = [];
   for (const t of toks) {
     if (allowRange && t.includes("-")) {
       const m = /^(\d{4})-(\d{4})?$/.exec(t);
       if (!m) return { error: `“${t}” isn't a year or a period. Use four digits, e.g. 2019 — or a period, e.g. 2011-2014, or 2023- if it's still ongoing` };
       const from = +m[1], to = m[2] ? +m[2] : null;
-      if (!inRange(from) || (to !== null && !inRange(to))) return { error: `${t} is outside 1900–${maxYear}` };
+      if (!inRange(from) || (to !== null && !inRange(to))) return { error: `${t} is outside ${minYear}–${maxYear}` };
       if (to !== null && to < from) return { error: `${t} has its years backwards — the second year should be later` };
       years.push({ from, to });
     } else if (/^\d{4}$/.test(t)) {
-      if (!inRange(+t)) return { error: `${t} is outside 1900–${maxYear}` };
+      if (!inRange(+t)) return { error: `${t} is outside ${minYear}–${maxYear}` };
       years.push(+t);
     } else {
       return {
@@ -165,10 +170,45 @@ function highlight(name, q) {
 // somewhere), and it is never offered for a place already recorded as
 // Visited/Lived/Home (app.js). Marking it Visited later is simply a status
 // change, which is exactly what should happen the day you finally go.
-const STATUS = { visited: "Visited", lived: "Lived", home: "Home", bucket: "Bucket list" };
+// "upcoming" (2026-09-16) is a trip already BOOKED — distinct from bucket list,
+// which is somewhere you merely want to go, not somewhere with a date. Like
+// bucket it means you haven't been, so it never counts toward "of 195"; unlike
+// bucket it carries a year, because a booking has one.
+//
+// It is also the ONE status that can coexist with another, per the owner: you
+// can have been somewhere AND have a return trip booked. That combination is
+// carried by a separate `u` field rather than by `s`, which stays strictly
+// single-valued:
+//   { y:[2026], s:"upcoming" }  booked, never been — y holds the booked year(s)
+//   { y:[2019], u:2027 }        been in 2019, AND a trip booked for 2027
+// `u` holds the booked YEAR itself, not a boolean — it must NOT live inside `y`
+// alongside real past visits, or a trip that hasn't happened yet would silently
+// count as one (inflating "# times visited" and the heatmap shade before the
+// trip has even occurred — caught designing this, not after shipping it). `u`
+// is only ever valid alongside the default Visited status — choosing Lived,
+// Home or Bucket clears it (app.js enforces it in the UI, validateImport at the
+// data boundary).
+//
+// Both `s:"upcoming"` and `u` accept years up to UPCOMING_YEARS_AHEAD past the
+// current one — "imminent," not "someday" (which is what Bucket list is for) —
+// but decoding/import are deliberately more LIBERAL than that on the low end:
+// a link saved while a trip was still upcoming keeps decoding correctly after
+// the date has quietly passed, rather than becoming "corrupt" the day the trip
+// would have happened. The entry UI is what actually enforces "not in the
+// past" at write time (app.js), not the codec.
+const UPCOMING_YEARS_AHEAD = 5;
+const STATUS = { visited: "Visited", lived: "Lived", home: "Home", bucket: "Bucket list", upcoming: "Upcoming" };
 const yearsOf = (rec) => rec?.y ?? [];
 const statusOf = (rec) => rec?.s ?? "visited";
-const isBeen = (rec) => !!rec && rec.s !== "bucket";
+// Somewhere you have actually been. Both "not been yet" statuses are excluded;
+// a visited record carrying an upcoming trip (`u`) is still a place you've been.
+const isBeen = (rec) => !!rec && rec.s !== "bucket" && rec.s !== "upcoming";
+// Somewhere with a booked trip ahead — either kind of record above.
+const isUpcoming = (rec) => !!rec && (rec.s === "upcoming" || typeof rec.u === "number");
+// The booked year(s), whichever of the two shapes above holds them — what the
+// UI actually displays ("upcoming: 2027"), so it doesn't need to know which
+// representation a given record uses.
+const upcomingYearsOf = (rec) => rec?.s === "upcoming" ? (rec.y || []) : typeof rec?.u === "number" ? [rec.u] : [];
 
 // ── the heatmap (added 2026-09-15, prototype) ───────────────────────────
 // A CLASSED choropleth — the standard for maps meant to be read value-by-value:
@@ -195,7 +235,9 @@ const isBeen = (rec) => !!rec && rec.s !== "bucket";
 // years at all (possible only via a hand-edited link) is still a visit: class 1.
 const HEAT_BINS = [1, 2, 3, 4, 6]; // lower bound of each class; 6 is "6+"
 function heatClass(rec) {
-  if (!rec || rec.s === "bucket") return 0;
+  // Neither "not been yet" status takes a heat shade; a visited record that also
+  // has a trip booked (`u`) keeps the shade its visits earned.
+  if (!rec || rec.s === "bucket" || rec.s === "upcoming") return 0;
   if (rec.s === "lived" || rec.s === "home") return HEAT_BINS.length;
   const n = Math.max(1, (rec.y || []).length);
   let k = 0;
@@ -212,15 +254,20 @@ function heatClass(rec) {
 // never filtered against each other.
 function stats(visits, placeOf) {
   const byContinent = {};
-  let count = 0, territoryCount = 0, bucketCount = 0;
+  let count = 0, territoryCount = 0, bucketCount = 0, upcomingCount = 0;
   for (const iso of Object.keys(visits)) {
     const p = placeOf(iso);
     if (!p) continue; // shouldn't happen — decodeMap/validateImport gate unknown codes
-    if (visits[iso].s === "bucket") { bucketCount++; continue; }
+    const rec = visits[iso];
+    // Counted independently of everything else, because a booked trip can sit
+    // on a place you've already been — so it is NOT a `continue` for the others.
+    if (isUpcoming(rec)) upcomingCount++;
+    if (rec.s === "bucket") { bucketCount++; continue; }
+    if (rec.s === "upcoming") continue;  // booked but not been: like bucket, outside every count
     if (p.official) { count++; byContinent[p.cont] = (byContinent[p.cont] || 0) + 1; }
     else territoryCount++;
   }
-  return { count, pct: (count / 195) * 100, byContinent, territoryCount, bucketCount };
+  return { count, pct: (count / 195) * 100, byContinent, territoryCount, bucketCount, upcomingCount };
 }
 
 // ── the map IS the URL ──────────────────────────────────────────────────
@@ -251,11 +298,25 @@ function encYear(e) {
 // visit. "_" is an unreserved URL character that auto-linkers treat as part of
 // the word, and it is safe inside URLSearchParams (unlike "+", which decodes
 // to a space).
+// The two 2026-09-16 additions extend the underscore rather than reaching for a
+// new character, because the safe set is nearly exhausted: "-" separates places,
+// "~" wraps a period, "!" and "*" are Lived and Home, and every other obvious
+// punctuation mark gets stripped by mail-client auto-linkers at the end of a
+// link (the exact hazard that made bucket an underscore in the first place).
+// Counting leading underscores is unambiguous and stays URL-unreserved:
+//   _   bucket list        (never been, no years)
+//   __  upcoming           (never been; the booked year(s) follow as ordinary
+//                            plain years — Upcoming never takes a period)
+//   ___ visited + upcoming (been; followed by EXACTLY ONE 2-char chunk for the
+//                            single booked year `u`, then the past visit years
+//                            exactly as an ordinary Visited record would encode)
 const MARK = { lived: "!", home: "*", bucket: "_" };
+const upMark = (r) => (r.s === "upcoming" ? "__" : !r.s && typeof r.u === "number" ? "___" : MARK[r.s] || "");
 function encodeMap(v) {
   return Object.keys(v).sort().map((iso) => {
-    const mark = MARK[v[iso].s] || "";
-    return iso + mark + (v[iso].s === "bucket" ? "" : (v[iso].y || []).map(encYear).join(""));
+    const r = v[iso], mark = upMark(r);
+    const upChunk = mark === "___" ? enc36(r.u - Y0) : "";
+    return iso + mark + upChunk + (r.s === "bucket" ? "" : (r.y || []).map(encYear).join(""));
   }).join("-");
 }
 function decodeYears(rest, max) {
@@ -289,12 +350,30 @@ function decodeMap(str, isKnown) {
     if (part.length < 3) continue;
     const iso = part.slice(0, 3).toUpperCase();
     if (!isKnown(iso)) continue;
-    let rest = part.slice(3), s;
+    let rest = part.slice(3), s, u = null;
     if (rest[0] === "!") { s = "lived"; rest = rest.slice(1); }
     else if (rest[0] === "*") { s = "home"; rest = rest.slice(1); }
-    else if (rest[0] === "_") { s = "bucket"; rest = ""; } // never has years; ignore anything after the mark
-    const y = decodeYears(rest, max);
-    out[iso] = s ? { y, s } : { y };
+    else if (rest[0] === "_") {
+      // 1, 2 or 3+ underscores — see upMark above. A longer run than the codec
+      // ever writes is a mangled link; treated as the split case (3) rather
+      // than inventing a status, same "nearest thing it can be" principle as
+      // every other decoder here.
+      const n = /^_+/.exec(rest)[0].length;
+      rest = rest.slice(n);
+      if (n === 1) { s = "bucket"; rest = ""; }   // never has years
+      else if (n === 2) s = "upcoming";           // booked years follow below, as plain years
+      else {
+        // Split: exactly one 2-char chunk is the booked year, THEN the past
+        // visit years, decoded the ordinary way (never a period — Visited
+        // never takes one). Liberal upper bound (see UPCOMING_YEARS_AHEAD's
+        // own comment) so an old link whose trip has since passed still decodes.
+        const chunk = rest.slice(0, 2); rest = rest.slice(2);
+        const n2 = parseInt(chunk, 36);
+        if (Number.isFinite(n2)) { const yr = Y0 + n2; if (yr >= Y0 && yr <= max + UPCOMING_YEARS_AHEAD) u = yr; }
+      }
+    }
+    const y = decodeYears(rest, s === "upcoming" ? max + UPCOMING_YEARS_AHEAD : max);
+    out[iso] = s ? { y, s } : u !== null ? { y, u } : { y };
   }
   return out;
 }
@@ -309,17 +388,28 @@ function validateImport(obj, isKnown) {
     return { error: "That doesn't look like a Nomadic Traveller Map backup file." };
   }
   const max = new Date().getFullYear();
+  const upMax = max + UPCOMING_YEARS_AHEAD; // liberal on purpose — see UPCOMING_YEARS_AHEAD's own comment
   const valid = (n) => Number.isInteger(n) && n >= 1900 && n <= max;
+  const validUp = (n) => Number.isInteger(n) && n >= 1900 && n <= upMax;
   const visits = {};
   for (const [iso, rec] of Object.entries(obj.visits)) {
     if (!/^[A-Z]{3}$/.test(iso) || !isKnown(iso)) return { error: `"${iso}" isn't a country or territory this map knows about.` };
     if (!rec || typeof rec !== "object" || !Array.isArray(rec.y)) return { error: `${iso}'s entry is malformed.` };
-    if (rec.s !== undefined && rec.s !== "lived" && rec.s !== "home" && rec.s !== "bucket") return { error: `${iso} has an invalid status "${rec.s}".` };
+    if (rec.s !== undefined && rec.s !== "lived" && rec.s !== "home" && rec.s !== "bucket" && rec.s !== "upcoming") return { error: `${iso} has an invalid status "${rec.s}".` };
+    // `u` holds the booked YEAR for "been, and going again" — coherent only on
+    // a Visited record, the one combination the owner allowed. Rejected rather
+    // than silently dropped: a file claiming Lived+upcoming means something
+    // this app cannot represent, and guessing which half to keep would be worse.
+    if (rec.u !== undefined && !validUp(rec.u)) return { error: `${iso} has an invalid upcoming year "${rec.u}".` };
+    if (rec.u !== undefined && rec.s !== undefined) return { error: `${iso} combines "${rec.s}" with an upcoming trip, which isn't a combination this map allows.` };
     if (rec.s === "bucket") { visits[iso] = { y: [], s: "bucket" }; continue; } // somewhere you haven't been has no years
+    // Upcoming's OWN booked year(s) get the liberal future-inclusive bound;
+    // every other status keeps the strict "not in the future" bound unchanged.
+    const yearOk = rec.s === "upcoming" ? validUp : valid;
     const y = [];
     for (const e of rec.y) {
       if (typeof e === "number") {
-        if (!valid(e)) return { error: `${iso} has an invalid year "${e}".` };
+        if (!yearOk(e)) return { error: `${iso} has an invalid year "${e}".` };
         y.push(e);
       } else if (e && typeof e === "object" && "from" in e) {
         if (!valid(e.from) || (e.to !== null && !valid(e.to)) || (e.to !== null && e.to < e.from)) {
@@ -331,14 +421,15 @@ function validateImport(obj, isKnown) {
       }
     }
     y.sort((a, b) => yearKey(a) - yearKey(b));
-    visits[iso] = rec.s ? { y, s: rec.s } : { y };
+    visits[iso] = rec.s ? { y, s: rec.s } : rec.u !== undefined ? { y, u: rec.u } : { y };
   }
   return { visits };
 }
 
 window.Logic = {
   normalize, wordNormalize, search, exact, parseYears, esc, highlight,
-  STATUS, yearsOf, statusOf, isBeen, stats, encodeMap, decodeMap, validateImport,
+  STATUS, yearsOf, statusOf, isBeen, isUpcoming, upcomingYearsOf, UPCOMING_YEARS_AHEAD,
+  stats, encodeMap, decodeMap, validateImport,
   latestYear, formatYearsEdit, formatYearsDisplay, mergeYears, HEAT_BINS, heatClass,
 };
 

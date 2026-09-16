@@ -61,6 +61,7 @@
   </div>
   <div class="lgRow">
     <span class="lgBucket"><i class="lgSw"></i>Bucket list</span>
+    <span class="lgUpcoming"><i class="lgSw"></i>Upcoming</span>
     <label class="lgToggle"><input type="checkbox" id="heatToggle" checked>Heatmap</label>
   </div>
 </div>
@@ -96,6 +97,16 @@
       <button type="button" data-s="lived" aria-pressed="false">Lived</button>
       <button type="button" data-s="home" aria-pressed="false">Home</button>
       <button type="button" data-s="bucket" aria-pressed="false">Bucket list</button>
+      <!-- A trip already BOOKED, not merely wanted (2026-09-16, F37) — distinct
+           from Bucket list the same way a plane ticket is distinct from a wish.
+           The entry bar only ever sets THIS status outright (the owner's own
+           examples — Morocco, Japan — are both never-been bookings, which is
+           what this covers). Marking an ALREADY-VISITED place as having a
+           return trip booked too is a popover-only refinement (#popUpRow) —
+           adding a second free-text input here would breach G4's two-input
+           cap on the main screen, and the popover is where edits to an
+           existing record already happen (F4/J3). -->
+      <button type="button" data-s="upcoming" aria-pressed="false">Upcoming</button>
     </div>
   </div>
   <button class="btn" type="submit">Submit</button>
@@ -139,6 +150,17 @@
       <button type="button" data-s="lived" aria-pressed="false">Lived</button>
       <button type="button" data-s="home" aria-pressed="false">Home</button>
       <button type="button" data-s="bucket" aria-pressed="false">Bucket list</button>
+      <button type="button" data-s="upcoming" aria-pressed="false">Upcoming</button>
+    </div>
+    <!-- The ONE status that can combine with another (owner, 2026-09-16): a
+         place already Visited can also have a return trip booked. Shown only
+         while Visited is the active chip (app.js's paintUpRow()) — every other
+         status already means "not been" on its own, so combining makes no
+         sense for them. The year field appears only once the checkbox is
+         ticked, so the common case (no return trip) adds nothing to look at. -->
+    <div id="popUpRow" class="upRow" hidden>
+      <label class="upToggle"><input type="checkbox" id="popUpToggle">Also have a trip booked</label>
+      <input id="popUpYear" inputmode="numeric" placeholder="e.g. 2027" hidden aria-label="Year of the booked trip">
     </div>
     <label id="popYearsLabel" for="popYears">Year(s) visited</label>
     <input id="popYears" inputmode="numeric" placeholder="e.g. 2019, 2023">
